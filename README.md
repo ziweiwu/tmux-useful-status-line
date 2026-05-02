@@ -115,10 +115,17 @@ set -g @useful-batt-full-pct 95                      # %≥this AND charging is 
 ### Spotify
 
 ```tmux
-set -g @useful-spotify-max-len   30
-set -g @useful-spotify-icon      ""
-set -g @useful-spotify-separator " · "
+set -g @useful-spotify-max-len          30
+set -g @useful-spotify-icon             ""
+set -g @useful-spotify-separator        " · "
+set -g @useful-spotify-scroll           "on"   # slide through long titles on track change
+set -g @useful-spotify-scroll-dwell     2      # seconds dwelling at start and end
+set -g @useful-spotify-scroll-duration  8      # seconds the slide itself takes
 ```
+
+When the title is longer than `max-len` and `scroll` is on, the segment slides through the full text **once** when the track changes — 2s dwell at start, 8s slow slide, 2s dwell at end, then settles back to a truncated start view. The same track is never re-scrolled, so the bar is calm 99% of the time. This matches the "scroll on event, not on schedule" pattern that macOS Now Playing and iOS lock-screen players use.
+
+To disable entirely: `set -g @useful-spotify-scroll off`.
 
 ### Colors
 
