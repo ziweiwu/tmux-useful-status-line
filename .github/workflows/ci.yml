@@ -17,9 +17,7 @@ jobs:
           brew install bats-core shellcheck
 
       - name: Lint
-        run: |
-          shellcheck -x scripts/*.sh
-          shellcheck useful-status-line.tmux
+        run: make lint
 
       - name: Test
-        run: bats tests/*.bats
+        run: make test
