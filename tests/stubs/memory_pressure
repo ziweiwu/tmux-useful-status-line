@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mimic the relevant final line of `memory_pressure` output.
+echo "System-wide memory free percentage: ${MOCK_MEM_FREE:-50}%"

@@ -6,7 +6,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=helpers.sh
 source "$DIR/helpers.sh"
 
-CACHE_FILE="/tmp/tmux-useful-spotify-cache"
+CACHE_FILE="${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-spotify-cache"
 cache_check "$CACHE_FILE" 5 && exit 0
 
 MAX_LEN=$(get_tmux_option "@useful-spotify-max-len" 30)

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Stub: prints MOCK_CURL_OUTPUT (default empty); ignores all flags/URLs.
+printf "%s" "${MOCK_CURL_OUTPUT:-}"

@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats and shellcheck
+        run: |
+          brew install bats-core shellcheck
+
+      - name: Lint
+        run: |
+          shellcheck -x scripts/*.sh
+          shellcheck useful-status-line.tmux
+
+      - name: Test
+        run: bats tests/*.bats

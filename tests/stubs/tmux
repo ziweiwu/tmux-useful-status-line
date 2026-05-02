@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Stub `tmux` for unit tests. Reads MOCK_OPT_<sanitized> env vars to mimic
+# `tmux show-option -gqv @useful-foo-bar` lookups.
+#
+# Mapping: option name -> env var name
+#   strip leading '@', replace '-' with '_'
+#   e.g. @useful-mem-warn -> MOCK_OPT_useful_mem_warn
+
+if [ "$1" = "show-option" ] && [ "$2" = "-gqv" ] && [ -n "$3" ]; then
+    opt="$3"
+    var="MOCK_OPT_$(printf "%s" "$opt" | tr -d '@' | tr '-' '_')"
+    eval "printf '%s' \"\${$var:-}\""
+    exit 0
+fi
+
+# set-option / unset-option / anything else: silent no-op.
+exit 0

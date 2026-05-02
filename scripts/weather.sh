@@ -6,12 +6,16 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=helpers.sh
 source "$DIR/helpers.sh"
 
-CACHE_FILE="/tmp/tmux-useful-weather-cache"
 REFRESH_SEC=$(get_tmux_option "@useful-weather-refresh" 900)
 STALE_SEC=$(get_tmux_option "@useful-weather-stale" 3600)
 LOCATION=$(get_tmux_option "@useful-weather-location" "")
 FORMAT=$(get_tmux_option "@useful-weather-format" "%c+%C+%t++💧%h++💨%w")
 DIM=$(color_dim)
+
+# Namespace the cache by location+format so changing config yields a fresh fetch
+# instead of returning stale data from a different city.
+cache_key=$(printf "%s|%s" "$LOCATION" "$FORMAT" | shasum | cut -c1-8)
+CACHE_FILE="${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-weather-cache-${cache_key}"
 
 now=$(date +%s)
 needs_refresh=1
@@ -25,7 +29,7 @@ if [ "$needs_refresh" -eq 1 ]; then
     loc_enc="${LOCATION// /%20}"
     fresh=$(curl -s --max-time 5 "wttr.in/${loc_enc}?format=${FORMAT}" 2>/dev/null \
         | tr -d '+' | sed 's/  */ /g')
-    if [ -n "$fresh" ] && ! echo "$fresh" | grep -qiE 'unknown|error|sorry'; then
+    if [ -n "$fresh" ] && ! echo "$fresh" | grep -qiE 'unknown|error|sorry|not found|^[[:space:]]*$'; then
         echo "$fresh" > "$CACHE_FILE"
     fi
 fi

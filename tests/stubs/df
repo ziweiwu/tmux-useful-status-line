@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Mimic two-line `df -h /` output. system.sh reads NR==2, column 5.
+cat <<EOF
+Filesystem    Size  Used Avail Capacity iused      ifree %iused  Mounted on
+/dev/disk    1.0T  500G  500G  ${MOCK_DISK_PCT:-50}%   100  100  50% /
+EOF

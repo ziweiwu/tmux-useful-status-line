@@ -129,6 +129,18 @@ set -g @useful-icon-mem  "MEM"  # default
 set -g @useful-icon-disk "DISK" # default 󰋊
 ```
 
+## Development
+
+```sh
+make lint    # shellcheck on every script
+make test    # run the bats test suite
+make check   # both
+```
+
+The plugin ships with **45 unit tests** covering threshold logic, cache behavior, location-namespacing, glyph progression, formatter interpolation, and option overrides. CI runs them on macOS for every push and PR (`.github/workflows/ci.yml`).
+
+If you're an LLM coding agent working on this repo, see [`AGENTS.md`](AGENTS.md) for conventions and pitfalls.
+
 ## Why use this?
 
 A typical tmux status line looks like a cockpit: every metric on screen, all the time, in its own colored block. The problem is that **every block competes for attention with the same visual weight**, so nothing actually pops when something needs your attention.

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stub: drain stdin (osascript heredoc input) then emit MOCK_SPOTIFY_TRACK if set.
+cat >/dev/null
+[ -n "${MOCK_SPOTIFY_TRACK:-}" ] && printf "%s\n" "$MOCK_SPOTIFY_TRACK"
+exit 0
