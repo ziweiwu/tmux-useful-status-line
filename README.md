@@ -73,10 +73,16 @@ All options are read via `set -g @useful-...` in `~/.tmux.conf`. Defaults shown.
 ### Weather
 
 ```tmux
-set -g @useful-weather-location ""           # "" = wttr.in geo-IP guess. Otherwise: "Toronto", "London,UK", "94103"
-set -g @useful-weather-format   "%c+%C+%t++💧%h++💨%w"   # wttr.in format string
-set -g @useful-weather-refresh  900           # seconds between fetches
-set -g @useful-weather-stale    3600          # dim cached output once it's older than this
+set -g @useful-weather-location ""              # "" = wttr.in geo-IP guess. Otherwise: "Toronto", "London,UK", "94103"
+set -g @useful-weather-format   "%c+%t"         # wttr.in format string. Default = condition icon + temperature.
+set -g @useful-weather-refresh  900             # seconds between fetches
+set -g @useful-weather-stale    3600            # dim cached output once it's older than this
+```
+
+The default format renders as `☁ 7°C` — the bare minimum your eye actually parses at a glance. For verbose mode with humidity and wind, override:
+
+```tmux
+set -g @useful-weather-format "%c+%C+%t++💧%h++💨%w"   # ☁ Overcast 7°C 💧81% 💨5km/h
 ```
 
 ### System health thresholds
@@ -97,13 +103,13 @@ set -g @useful-disk-crit 95
 ```tmux
 set -g @useful-batt-warn 40                          # under this %, color turns warn (when not charging)
 set -g @useful-batt-crit 20                          # under this %, color turns crit
-set -g @useful-batt-show-when "discharging-or-low"   # always | discharging-or-low | low-only
+set -g @useful-batt-show-when "always"               # always | discharging-or-low | low-only
 set -g @useful-batt-full-pct 95                      # %≥this AND charging is treated as "full" and hidden
 ```
 
 `@useful-batt-show-when` modes:
-- `always` — show the segment in all states.
-- `discharging-or-low` *(default)* — hide when fully charged and on AC; the most boring state your laptop can be in. Show in every other state.
+- `always` *(default)* — show the segment in all states. The charging glyph (󰂄) clearly distinguishes plugged-in from discharging.
+- `discharging-or-low` — hide when fully charged and on AC; the most boring state your laptop can be in.
 - `low-only` — hide unless the battery is below `batt-warn` *and* not charging.
 
 ### Spotify

@@ -9,7 +9,7 @@ source "$DIR/helpers.sh"
 REFRESH_SEC=$(get_tmux_option "@useful-weather-refresh" 900)
 STALE_SEC=$(get_tmux_option "@useful-weather-stale" 3600)
 LOCATION=$(get_tmux_option "@useful-weather-location" "")
-FORMAT=$(get_tmux_option "@useful-weather-format" "%c+%C+%t++💧%h++💨%w")
+FORMAT=$(get_tmux_option "@useful-weather-format" "%c+%t")
 DIM=$(color_dim)
 
 # Namespace the cache by location+format so changing config yields a fresh fetch

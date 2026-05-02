@@ -16,7 +16,7 @@ CRIT=$(color_crit)
 BATT_WARN=$(get_tmux_option "@useful-batt-warn" 40)
 BATT_CRIT=$(get_tmux_option "@useful-batt-crit" 20)
 # Visibility mode: always | discharging-or-low | low-only
-SHOW_WHEN=$(get_tmux_option "@useful-batt-show-when" "discharging-or-low")
+SHOW_WHEN=$(get_tmux_option "@useful-batt-show-when" "always")
 FULL_PCT=$(get_tmux_option "@useful-batt-full-pct" 95)
 
 batt=$(pmset -g batt 2>/dev/null)

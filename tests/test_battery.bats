@@ -15,18 +15,9 @@ run_battery() {
     run "$SCRIPTS_DIR/battery.sh"
 }
 
-@test "100% on AC with default 'discharging-or-low' → hidden" {
+@test "100% on AC by default → visible with charging glyph + percent" {
     export MOCK_BATT_AC=1
     export MOCK_BATT_PCT=100
-    run_battery
-    [ "$status" -eq 0 ]
-    [ "$output" = "" ]
-}
-
-@test "100% on AC with show-when=always → visible" {
-    export MOCK_BATT_AC=1
-    export MOCK_BATT_PCT=100
-    export MOCK_OPT_useful_batt_show_when=always
     run_battery
     [ "$status" -eq 0 ]
     [[ "$output" == *"󰂄"* ]]
@@ -34,9 +25,19 @@ run_battery() {
     [[ "$output" == *"#[fg=#a3be8c]"* ]]
 }
 
-@test "94% on AC (below default full=95) → still visible by default" {
+@test "show-when=discharging-or-low hides 100% on AC" {
+    export MOCK_BATT_AC=1
+    export MOCK_BATT_PCT=100
+    export MOCK_OPT_useful_batt_show_when=discharging-or-low
+    run_battery
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "show-when=discharging-or-low shows 94% on AC (below full=95)" {
     export MOCK_BATT_AC=1
     export MOCK_BATT_PCT=94
+    export MOCK_OPT_useful_batt_show_when=discharging-or-low
     run_battery
     [[ "$output" == *"94%"* ]]
 }
