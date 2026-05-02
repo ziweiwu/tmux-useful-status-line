@@ -15,14 +15,46 @@ run_battery() {
     run "$SCRIPTS_DIR/battery.sh"
 }
 
-@test "100% on AC → charging glyph 󰂄, green" {
+@test "100% on AC with default 'discharging-or-low' → hidden" {
     export MOCK_BATT_AC=1
     export MOCK_BATT_PCT=100
+    run_battery
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "100% on AC with show-when=always → visible" {
+    export MOCK_BATT_AC=1
+    export MOCK_BATT_PCT=100
+    export MOCK_OPT_useful_batt_show_when=always
     run_battery
     [ "$status" -eq 0 ]
     [[ "$output" == *"󰂄"* ]]
     [[ "$output" == *"100%"* ]]
     [[ "$output" == *"#[fg=#a3be8c]"* ]]
+}
+
+@test "94% on AC (below default full=95) → still visible by default" {
+    export MOCK_BATT_AC=1
+    export MOCK_BATT_PCT=94
+    run_battery
+    [[ "$output" == *"94%"* ]]
+}
+
+@test "show-when=low-only hides healthy battery" {
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=80
+    export MOCK_OPT_useful_batt_show_when=low-only
+    run_battery
+    [ "$output" = "" ]
+}
+
+@test "show-when=low-only shows when below warn" {
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=30
+    export MOCK_OPT_useful_batt_show_when=low-only
+    run_battery
+    [[ "$output" == *"30%"* ]]
 }
 
 @test "100% on battery → glyph 󰂂, green" {

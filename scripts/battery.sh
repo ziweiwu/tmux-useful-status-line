@@ -15,6 +15,9 @@ CRIT=$(color_crit)
 
 BATT_WARN=$(get_tmux_option "@useful-batt-warn" 40)
 BATT_CRIT=$(get_tmux_option "@useful-batt-crit" 20)
+# Visibility mode: always | discharging-or-low | low-only
+SHOW_WHEN=$(get_tmux_option "@useful-batt-show-when" "discharging-or-low")
+FULL_PCT=$(get_tmux_option "@useful-batt-full-pct" 95)
 
 batt=$(pmset -g batt 2>/dev/null)
 [ -z "$batt" ] && exit 0
@@ -24,6 +27,25 @@ pct=$(echo "$batt" | grep -oE '[0-9]{1,3}%' | head -1 | tr -d '%')
 
 charging=0
 echo "$batt" | grep -q "AC Power" && charging=1
+
+# Honor visibility mode before doing any further work.
+case "$SHOW_WHEN" in
+    always)
+        ;;
+    low-only)
+        if [ "$charging" -eq 1 ] || [ "$pct" -ge "$BATT_WARN" ]; then
+            : > "$CACHE_FILE"
+            exit 0
+        fi
+        ;;
+    discharging-or-low|*)
+        # Hide when fully charged AND on AC — the most boring state.
+        if [ "$charging" -eq 1 ] && [ "$pct" -ge "$FULL_PCT" ]; then
+            : > "$CACHE_FILE"
+            exit 0
+        fi
+        ;;
+esac
 
 if [ "$charging" -eq 1 ]; then
     glyph="󰂄"

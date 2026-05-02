@@ -92,12 +92,19 @@ set -g @useful-disk-warn 80
 set -g @useful-disk-crit 95
 ```
 
-### Battery thresholds
+### Battery
 
 ```tmux
-set -g @useful-batt-warn 40    # under this %, color turns warn (when not charging)
-set -g @useful-batt-crit 20    # under this %, color turns crit
+set -g @useful-batt-warn 40                          # under this %, color turns warn (when not charging)
+set -g @useful-batt-crit 20                          # under this %, color turns crit
+set -g @useful-batt-show-when "discharging-or-low"   # always | discharging-or-low | low-only
+set -g @useful-batt-full-pct 95                      # %≥this AND charging is treated as "full" and hidden
 ```
+
+`@useful-batt-show-when` modes:
+- `always` — show the segment in all states.
+- `discharging-or-low` *(default)* — hide when fully charged and on AC; the most boring state your laptop can be in. Show in every other state.
+- `low-only` — hide unless the battery is below `batt-warn` *and* not charging.
 
 ### Spotify
 
