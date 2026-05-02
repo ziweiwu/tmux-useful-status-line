@@ -29,25 +29,27 @@ out=""
 load1=$(sysctl -n vm.loadavg | awk '{print $2}')
 ncpu=$(sysctl -n hw.ncpu)
 load_pct=$(awk -v l="$load1" -v n="$ncpu" 'BEGIN { printf "%d", (l/n)*100 }')
+# Each warning prefixes a single space; no trailing space. Chained warnings
+# end up "  icon1 val1 icon2 val2" (single space between segments).
 if [ "$load_pct" -ge "$LOAD_CRIT" ]; then
-    out+="#[fg=$CRIT] $ICON_LOAD $load1 "
+    out+=" #[fg=$CRIT]$ICON_LOAD $load1"
 elif [ "$load_pct" -ge "$LOAD_WARN" ]; then
-    out+="#[fg=$WARN] $ICON_LOAD $load1 "
+    out+=" #[fg=$WARN]$ICON_LOAD $load1"
 fi
 
 mem_free=$(memory_pressure | awk '/System-wide memory free percentage/ {gsub("%",""); print $5}')
 mem=$(( 100 - ${mem_free:-0} ))
 if [ "$mem" -ge "$MEM_CRIT" ]; then
-    out+="#[fg=$CRIT] $ICON_MEM ${mem}% "
+    out+=" #[fg=$CRIT]$ICON_MEM ${mem}%"
 elif [ "$mem" -ge "$MEM_WARN" ]; then
-    out+="#[fg=$WARN] $ICON_MEM ${mem}% "
+    out+=" #[fg=$WARN]$ICON_MEM ${mem}%"
 fi
 
 disk=$(df -h / | awk 'NR==2 {gsub("%",""); print $5}')
 if [ "$disk" -ge "$DISK_CRIT" ]; then
-    out+="#[fg=$CRIT] $ICON_DISK ${disk}% "
+    out+=" #[fg=$CRIT]$ICON_DISK ${disk}%"
 elif [ "$disk" -ge "$DISK_WARN" ]; then
-    out+="#[fg=$WARN] $ICON_DISK ${disk}% "
+    out+=" #[fg=$WARN]$ICON_DISK ${disk}%"
 fi
 
 [ -n "$out" ] && out+="#[fg=default]"

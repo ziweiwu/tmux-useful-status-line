@@ -147,6 +147,37 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
 
+@test "pause then resume same track does not retrigger slide" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    # Initial play at t=1000.
+    export TMUX_USEFUL_NOW=1000
+    run_spotify
+    state_after_play=$(cat "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state")
+
+    # Pause: osascript returns empty. Track cache must be invalidated so
+    # spotify.sh actually re-asks osascript and sees the empty state.
+    rm -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-track-cache"
+    export MOCK_SPOTIFY_TRACK=""
+    export TMUX_USEFUL_NOW=1100
+    run_spotify
+    [ "$output" = "" ]
+    # Critical: state file is preserved across pause.
+    [ -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state" ]
+    [ "$(cat "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state")" = "$state_after_play" ]
+
+    # Resume same track much later. Should NOT reset cycle.
+    rm -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-track-cache"
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export TMUX_USEFUL_NOW=1200
+    run_spotify
+    # State's cycle_start should still be 1000 (not 1200).
+    grep -q "^${LONG_TRACK}|1000$" "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    # Display should be settled, not in slide phase.
+    [[ "$output" == *"Lorem ipsum do…"* ]]
+}
+
 @test "no slide spawned for tracks that fit (length ≤ max)" {
     export MOCK_SPOTIFY_RUNNING=1
     export MOCK_SPOTIFY_TRACK="A · B"

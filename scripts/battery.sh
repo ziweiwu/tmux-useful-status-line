@@ -65,4 +65,4 @@ else
     color="$OK"
 fi
 
-printf "#[fg=%s]%s %s%%#[fg=default]" "$color" "$glyph" "$pct" | tee "$CACHE_FILE"
+printf " #[fg=%s]%s %s%%#[fg=default]" "$color" "$glyph" "$pct" | tee "$CACHE_FILE"

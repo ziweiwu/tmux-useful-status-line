@@ -38,8 +38,11 @@ fi
 
 cache_age=$(( now - $(stat -f %m "$CACHE_FILE") ))
 text=$(cat "$CACHE_FILE")
+# Weather is metadata, not status — render in dim by default so it doesn't
+# compete with status colors. Stale (>1hr) data adds italics for an extra
+# subtle "this might be old" cue without further dimming.
 if [ "$cache_age" -gt "$STALE_SEC" ]; then
-    printf "#[fg=%s]%s#[fg=default]" "$DIM" "$text"
+    printf " #[fg=%s,italics]%s#[default]" "$DIM" "$text"
 else
-    printf "%s" "$text"
+    printf " #[fg=%s]%s#[fg=default]" "$DIM" "$text"
 fi

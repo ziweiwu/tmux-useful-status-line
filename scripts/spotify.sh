@@ -11,6 +11,7 @@ source "$DIR/helpers.sh"
 CACHE_DIR_BASE="${TMUX_USEFUL_CACHE_DIR:-/tmp}"
 TRACK_CACHE="$CACHE_DIR_BASE/tmux-useful-spotify-track-cache"
 STATE_FILE="$CACHE_DIR_BASE/tmux-useful-spotify-state"
+WATCHDOG_PID_FILE="$CACHE_DIR_BASE/tmux-useful-spotify-watchdog.pid"
 
 MAX_LEN=$(get_tmux_option "@useful-spotify-max-len" 30)
 ICON=$(get_tmux_option "@useful-spotify-icon" "")
@@ -52,7 +53,8 @@ EOF
 fi
 
 if [ -z "$track" ]; then
-    rm -f "$STATE_FILE"
+    # Preserve STATE_FILE so resuming the same track later doesn't replay the
+    # full slide animation. Just emit nothing for this tick.
     exit 0
 fi
 
@@ -72,6 +74,19 @@ if [ "$track" != "$prev_track" ]; then
     if [ -z "${TMUX_USEFUL_NO_WATCHDOG:-}" ] \
        && [ "$SCROLL_ENABLED" = "on" ] \
        && [ "${#track}" -gt "$MAX_LEN" ]; then
+        # Kill any leftover watchdog from a previous (now-stale) cycle so we
+        # don't accumulate refreshers when tracks change rapidly.
+        if [ -f "$WATCHDOG_PID_FILE" ]; then
+            old_pid=$(cat "$WATCHDOG_PID_FILE" 2>/dev/null)
+            if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+                # Be cautious: only kill if comm looks like our shell watchdog.
+                comm=$(ps -p "$old_pid" -o comm= 2>/dev/null)
+                case "$comm" in
+                    *bash*|*sh*|*sleep*) kill "$old_pid" 2>/dev/null ;;
+                esac
+            fi
+        fi
+
         (
             window_end=$(( now + DWELL + SLIDE_DURATION + DWELL + 1 ))
             while [ "$(date +%s)" -lt "$window_end" ]; do
@@ -79,7 +94,9 @@ if [ "$track" != "$prev_track" ]; then
                 tmux refresh-client -S 2>/dev/null
             done
         ) </dev/null >/dev/null 2>&1 &
-        disown $!
+        new_pid=$!
+        echo "$new_pid" >"$WATCHDOG_PID_FILE"
+        disown "$new_pid"
     fi
 fi
 
@@ -116,4 +133,4 @@ else
     display="${track:0:$((MAX_LEN - 1))}…"
 fi
 
-printf "#[fg=%s] %s %s #[fg=default]" "$ACCENT" "$ICON" "$display"
+printf " #[fg=%s]%s %s#[fg=default]" "$ACCENT" "$ICON" "$display"
