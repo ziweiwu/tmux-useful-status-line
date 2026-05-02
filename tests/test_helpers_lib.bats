@@ -58,3 +58,35 @@ teardown() {
     run color_ok
     [ "$output" = "#a3be8c" ]
 }
+
+@test "default_color_dim is WCAG-AA-passing" {
+    run color_dim
+    [ "$output" = "#7b8696" ]
+}
+
+@test "segment_enabled returns 0 by default" {
+    run segment_enabled "anything"
+    [ "$status" -eq 0 ]
+}
+
+@test "segment_enabled returns 1 when option set to off" {
+    export MOCK_OPT_useful_foo_enabled=off
+    run segment_enabled "foo"
+    [ "$status" -eq 1 ]
+}
+
+@test "segment_enabled accepts off/false/0/no" {
+    for v in off false 0 no; do
+        export MOCK_OPT_useful_foo_enabled="$v"
+        run segment_enabled "foo"
+        [ "$status" -eq 1 ] || { echo "value $v should disable, status=$status" >&2; return 1; }
+    done
+}
+
+@test "useful_cache_dir respects @useful-cache-dir option" {
+    export MOCK_OPT_useful_cache_dir="/tmp/explicit-override"
+    mkdir -p /tmp/explicit-override
+    run useful_cache_dir
+    [ "$output" = "/tmp/explicit-override" ]
+    rmdir /tmp/explicit-override 2>/dev/null || true
+}

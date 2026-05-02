@@ -64,34 +64,35 @@ run_weather() {
     [[ "$output" == *"London data"* ]]
 }
 
-@test "stale cache adds italics to dim color" {
+@test "stale cache prepends '~' marker" {
     export MOCK_CURL_OUTPUT="☀️ Old"
     run_weather
-    cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/tmux-useful-weather-cache-*)
+    cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-*)
     # Backdate cache to 2 hours ago so it crosses default 1hr stale threshold.
     touch -t "$(date -v-2H +%Y%m%d%H%M.%S)" "$cache_file"
     # Force fetch attempt to fail (empty curl) so we fall back to the stale cached value.
     export MOCK_CURL_OUTPUT=""
     run_weather
-    [[ "$output" == *"italics"* ]]
+    [[ "$output" == *"~"* ]]
     [[ "$output" == *"Old"* ]]
 }
 
-@test "fresh cache renders dim but not italic" {
+@test "fresh cache renders without stale marker" {
     export MOCK_CURL_OUTPUT="☀️ Fresh"
     run_weather
-    [[ "$output" == *"#[fg=#4c566a]"* ]]
-    [[ "$output" != *"italics"* ]]
+    [[ "$output" == *"Fresh"* ]]
+    [[ "$output" != *"~☀️"* ]]
+    [[ "$output" != *"~Fresh"* ]]
 }
 
-@test "configurable stale threshold respected (italic flips on)" {
+@test "configurable stale threshold respected (~ flips on)" {
     export MOCK_OPT_useful_weather_stale=1
     export MOCK_CURL_OUTPUT="☀️ Test"
     run_weather
     sleep 2
-    cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/tmux-useful-weather-cache-*)
+    cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-*)
     touch -t "$(date -v-5S +%Y%m%d%H%M.%S)" "$cache_file"
     export MOCK_CURL_OUTPUT=""   # block refresh
     run_weather
-    [[ "$output" == *"italics"* ]]
+    [[ "$output" == *"~"* ]]
 }

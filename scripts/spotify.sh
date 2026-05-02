@@ -8,16 +8,23 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=helpers.sh
 source "$DIR/helpers.sh"
 
-CACHE_DIR_BASE="${TMUX_USEFUL_CACHE_DIR:-/tmp}"
-TRACK_CACHE="$CACHE_DIR_BASE/tmux-useful-spotify-track-cache"
-STATE_FILE="$CACHE_DIR_BASE/tmux-useful-spotify-state"
-WATCHDOG_PID_FILE="$CACHE_DIR_BASE/tmux-useful-spotify-watchdog.pid"
+segment_enabled "spotify" || exit 0
+
+CACHE_DIR_BASE="$(useful_cache_dir)"
+TRACK_CACHE="$CACHE_DIR_BASE/spotify-track"
+STATE_FILE="$CACHE_DIR_BASE/spotify-state"
+WATCHDOG_PID_FILE="$CACHE_DIR_BASE/spotify-watchdog.pid"
 
 MAX_LEN=$(get_tmux_option "@useful-spotify-max-len" 30)
 ICON=$(get_tmux_option "@useful-spotify-icon" "")
 SEPARATOR=$(get_tmux_option "@useful-spotify-separator" " · ")
 ACCENT=$(color_accent)
 SCROLL_ENABLED=$(get_tmux_option "@useful-spotify-scroll" "on")
+# Honor REDUCED_MOTION (CSS-equivalent) and TMUX_USEFUL_REDUCED_MOTION as a
+# global motion-sensitive escape hatch. Either being set forces scroll off.
+if [ -n "${REDUCED_MOTION:-}" ] || [ -n "${TMUX_USEFUL_REDUCED_MOTION:-}" ]; then
+    SCROLL_ENABLED="off"
+fi
 DWELL=$(get_tmux_option "@useful-spotify-scroll-dwell" 2)
 SLIDE_DURATION=$(get_tmux_option "@useful-spotify-scroll-duration" 8)
 

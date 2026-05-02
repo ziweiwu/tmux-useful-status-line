@@ -1,93 +1,123 @@
 # tmux-useful-status-line
 
-A tmux status-line plugin that prioritizes **state over decoration**:
+A tmux status-line plugin that prioritizes **state over decoration**. Routine values stay hidden; color is reserved for state changes; the bar pops only when something needs attention.
 
-- **System health** (CPU load, memory, disk) is silent when fine, warns in yellow above thresholds, screams in red when critical.
-- **Battery** changes color and glyph based on charge level and AC state.
-- **Spotify** shows the current track only when something is playing.
-- **Weather** caches aggressively and dims when the data goes stale.
+## Why use this?
 
-Designed for macOS. Cheap on CPU — every script caches its output and most are no-ops most of the time.
+A typical tmux status line looks like a cockpit: every metric on screen, all the time, in its own colored block. The problem is that *every block competes for attention with the same visual weight*, so nothing actually pops when something needs your attention. Stacking `tmux-cpu` + `tmux-battery` + `tmux-online` produces this exact failure mode.
 
-## Preview
+This plugin inverts it: routine numbers are hidden, color is reserved for state, and the bar is calm 95% of the time. Five segments are bundled, each implementing the same "silent when fine, loud when not" contract:
 
+| Segment | Behavior |
+|---|---|
+| `#{useful_system}`  | Shows CPU load / mem / disk **only** when above your thresholds. Yellow at warn, red at crit, with a leading `!` so the state survives color-blindness. |
+| `#{useful_battery}` | Glyph + percent, color tracks state; charging is unambiguous via a distinct glyph. |
+| `#{useful_weather}` | Compact `☁ 7°C` from wttr.in, dim by default (it's metadata, not status). Stale data is prefixed `~`. |
+| `#{useful_spotify}` | Now-playing track. Empty when not playing. Long titles slide *once* on track change (matches macOS Now Playing). |
+| `#{useful_git}` | Current branch + dirty mark. Empty outside a repo. Warn-color when the working tree is dirty. |
+
+## Quick start
+
+```sh
+# 1. If you don't have TPM (the tmux plugin manager) yet:
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
+# 2. Install this plugin via TPM (add to ~/.tmux.conf):
+echo "set -g @plugin 'tmux-plugins/tpm'"             >> ~/.tmux.conf
+echo "set -g @plugin 'ziweiwu/tmux-useful-status-line'" >> ~/.tmux.conf
+echo "set -g @useful-default-layout on"              >> ~/.tmux.conf
+echo "run '~/.tmux/plugins/tpm/tpm'"                 >> ~/.tmux.conf
+
+# 3. Reload tmux + fetch the plugin:
+tmux source ~/.tmux.conf
+# Press: prefix + I
 ```
-[ session  ~/path ]   1:zsh   2:vim*   ...                          Artist · Track    52%   ⛅ Light rain 4°C   100%  18:42
-                                                          ^^^^^ shown only when relevant ^^^^^
-```
 
-When everything is healthy, the right side is just: weather, battery, time. When something is off, only the unhealthy metric pops in.
+That's it. With `@useful-default-layout on`, the plugin seeds a sensible `status-right` for you. To customize, leave that option off and write your own format string referencing the placeholders above.
 
-## Requirements
+> [!IMPORTANT]
+> The default glyphs (battery icons, disk icon) need a [Nerd Font](https://www.nerdfonts.com/). If you see broken-tofu boxes (□) in your bar, see [No Nerd Font?](#no-nerd-font) below.
 
-- tmux 3.0+
-- macOS (uses `pmset`, `osascript`, `memory_pressure`, `sysctl`)
-- A Nerd Font for the default glyphs (battery, disk). You can override icons via options if you don't use one.
-- `curl` for weather (optional).
-
-## Install via [TPM](https://github.com/tmux-plugins/tpm)
-
-Add to `~/.tmux.conf`:
-
-```tmux
-set -g @plugin 'ziweiwu/tmux-useful-status-line'
-```
-
-Then press `prefix + I` to fetch the plugin.
-
-## Manual install
+## Manual install (without TPM)
 
 ```sh
 git clone https://github.com/ziweiwu/tmux-useful-status-line ~/.tmux/plugins/tmux-useful-status-line
 ```
 
-And add to `~/.tmux.conf`:
+Then in `~/.tmux.conf`:
 
 ```tmux
 run-shell ~/.tmux/plugins/tmux-useful-status-line/useful-status-line.tmux
+set -g @useful-default-layout on    # or write your own status-right
 ```
 
-## Usage
+## Requirements
 
-The plugin exposes four placeholders you can drop into `status-left` or `status-right`:
+- tmux 3.0+
+- macOS (uses `pmset`, `osascript`, `memory_pressure`, `sysctl`). Linux support is on the roadmap.
+- `curl` for the weather segment (skip it if you don't use it).
+- A Nerd Font for the default battery/disk glyphs — or use the ASCII-fallback toggle below.
 
-| Placeholder | Output |
-|---|---|
-| `#{useful_system}` | Load / mem / disk warnings (empty when healthy) |
-| `#{useful_battery}` | Battery glyph + percent, colored by state |
-| `#{useful_weather}` | Current weather from wttr.in (cached) |
-| `#{useful_spotify}` | Spotify now-playing (empty when not playing) |
+## No Nerd Font?
 
-A reasonable starting point:
+The `system` and `battery` segments default to Nerd Font codepoints. Two ways to fix this if you don't have one:
 
 ```tmux
-set -g status-interval 30
-set -g status-right-length 200
-set -g status-right "#{useful_spotify} #{useful_system}#{useful_weather}  #{useful_battery}  #[fg=#88c0d0,bold]%H:%M #[default]"
+# Option A — install one (one-liner on macOS):
+# brew install --cask font-hack-nerd-font
+
+# Option B — use ASCII fallbacks in your config:
+set -g @useful-icon-load        "LOAD"
+set -g @useful-icon-mem         "MEM"
+set -g @useful-icon-disk        "DISK"
+set -g @useful-spotify-icon     "♪"
+set -g @useful-batt-icons-ascii "on"
+set -g @useful-git-icon         "git"
 ```
 
-## Configuration
+The ASCII battery toggle renders as `[####] 92%` etc. Less pretty, works on default macOS Terminal.app and any SSH session.
 
-All options are read via `set -g @useful-...` in `~/.tmux.conf`. Defaults shown.
+## Custom layout
+
+If you'd rather hand-author the layout (and skip `@useful-default-layout on`):
+
+```tmux
+set -g status-interval 30      # 30s is enough for HH:MM and warning-band metrics
+set -g status-right-length 200
+set -g status-right "#{useful_spotify}#{useful_git}#{useful_system}#{useful_weather}#{useful_battery} #[fg=#88c0d0]%H:%M #[default]"
+```
+
+> [!NOTE]
+> Each segment self-pads with a single leading space and emits no trailing space. **Don't add your own spaces between `#{useful_*}` placeholders** — they'll double up. Add spaces around fixed-text segments (clock, your custom text) only.
+
+To disable a segment without editing your `status-right`:
+
+```tmux
+set -g @useful-spotify-enabled  off
+set -g @useful-system-enabled   off
+set -g @useful-weather-enabled  off
+set -g @useful-battery-enabled  off
+set -g @useful-git-enabled      off
+```
+
+## Configuration reference
+
+All options are `set -g @useful-...` in `~/.tmux.conf`. Defaults shown.
 
 ### Weather
 
 ```tmux
-set -g @useful-weather-location ""              # "" = wttr.in geo-IP guess. Otherwise: "Toronto", "London,UK", "94103"
-set -g @useful-weather-format   "%c+%t"         # wttr.in format string. Default = condition icon + temperature.
-set -g @useful-weather-refresh  900             # seconds between fetches
-set -g @useful-weather-stale    3600            # dim cached output once it's older than this
+set -g @useful-weather-location ""        # "" = wttr.in geo-IP. Otherwise: "Toronto", "London,UK", "94103"
+set -g @useful-weather-format   "%c+%t"   # condition icon + temperature
+set -g @useful-weather-refresh  900       # seconds between fetches
+set -g @useful-weather-stale    3600      # prepend "~" to cached output older than this
 ```
 
-The default format renders as `☁ 7°C` — the bare minimum your eye actually parses at a glance. For verbose mode with humidity and wind, override:
-
-```tmux
-set -g @useful-weather-format "%c+%C+%t++💧%h++💨%w"   # ☁ Overcast 7°C 💧81% 💨5km/h
-```
+For verbose mode with humidity + wind: `set -g @useful-weather-format "%c+%C+%t++💧%h++💨%w"`.
 
 ### System health thresholds
 
-`load-warn` / `load-crit` are expressed as percent of (load1 ÷ ncpu). Memory and disk are absolute percent.
+`load-*` are expressed as % of `load1 ÷ ncpu`. Memory and disk are absolute %.
 
 ```tmux
 set -g @useful-load-warn 70
@@ -101,71 +131,109 @@ set -g @useful-disk-crit 95
 ### Battery
 
 ```tmux
-set -g @useful-batt-warn 40                          # under this %, color turns warn (when not charging)
-set -g @useful-batt-crit 20                          # under this %, color turns crit
-set -g @useful-batt-show-when "always"               # always | discharging-or-low | low-only
-set -g @useful-batt-full-pct 95                      # %≥this AND charging is treated as "full" and hidden
+set -g @useful-batt-warn       40           # below this %, color turns warn (when not charging)
+set -g @useful-batt-crit       20           # below this %, color turns crit + adds "!" prefix
+set -g @useful-batt-show-when  "always"     # always | discharging-or-low | low-only
+set -g @useful-batt-full-pct   95
+set -g @useful-batt-icons-ascii off         # toggle to "on" for ASCII fallback glyphs
 ```
 
-`@useful-batt-show-when` modes:
-- `always` *(default)* — show the segment in all states. The charging glyph (󰂄) clearly distinguishes plugged-in from discharging.
-- `discharging-or-low` — hide when fully charged and on AC; the most boring state your laptop can be in.
-- `low-only` — hide unless the battery is below `batt-warn` *and* not charging.
+Individual icon overrides (skip these if you set `batt-icons-ascii on`):
+
+```tmux
+set -g @useful-batt-icon-charging "󰂄"
+set -g @useful-batt-icon-full     "󰂂"
+set -g @useful-batt-icon-high     "󰂀"
+set -g @useful-batt-icon-mid      "󰁾"
+set -g @useful-batt-icon-low      "󰁺"
+set -g @useful-batt-icon-empty    "󰂃"
+```
 
 ### Spotify
 
 ```tmux
-set -g @useful-spotify-max-len          30
-set -g @useful-spotify-icon             ""
-set -g @useful-spotify-separator        " · "
-set -g @useful-spotify-scroll           "on"   # slide through long titles on track change
-set -g @useful-spotify-scroll-dwell     2      # seconds dwelling at start and end
-set -g @useful-spotify-scroll-duration  8      # seconds the slide itself takes
+set -g @useful-spotify-max-len         30
+set -g @useful-spotify-icon            ""
+set -g @useful-spotify-separator       " · "
+set -g @useful-spotify-scroll          "on"
+set -g @useful-spotify-scroll-dwell    2
+set -g @useful-spotify-scroll-duration 8
 ```
 
-When the title is longer than `max-len` and `scroll` is on, the segment slides through the full text **once** when the track changes — 2s dwell at start, 8s slow slide, 2s dwell at end, then settles back to a truncated start view. The same track is never re-scrolled, so the bar is calm 99% of the time. This matches the "scroll on event, not on schedule" pattern that macOS Now Playing and iOS lock-screen players use.
+When a title is longer than `max-len` and `scroll` is on, the segment slides through the full text **once** on each track change — 2s dwell at start, 8s slow slide, 2s dwell at end, then settles back to a truncated start view. The same track never re-scrolls.
 
-To disable entirely: `set -g @useful-spotify-scroll off`.
+To disable scrolling: `set -g @useful-spotify-scroll off`. To honor a global motion-sensitivity preference: set `REDUCED_MOTION=1` or `TMUX_USEFUL_REDUCED_MOTION=1` in your environment — both force scrolling off.
+
+### Git
+
+```tmux
+set -g @useful-git-icon            ""
+set -g @useful-git-dirty-mark      "*"
+set -g @useful-git-max-branch-len  24
+```
+
+Empty outside a repo. Branch name in dim color when the working tree is clean; warn color with a `*` (or your custom `dirty-mark`) when something is uncommitted, unstaged, or untracked. Detached HEAD shows `@<short-sha>`.
 
 ### Colors
 
-Override the four state colors. Defaults are Nord-ish but work on most palettes.
+Override state colors. Defaults pass WCAG AA contrast on dark backgrounds.
 
 ```tmux
 set -g @useful-color-ok     "#a3be8c"
 set -g @useful-color-warn   "#ebcb8b"
 set -g @useful-color-crit   "#bf616a"
 set -g @useful-color-accent "#b48ead"
-set -g @useful-color-dim    "#4c566a"
+set -g @useful-color-dim    "#7b8696"
 ```
 
-### Icons
-
-Override Nerd Font glyphs if you don't have one installed:
+### Icons (system)
 
 ```tmux
-set -g @useful-icon-load ""    # default 
-set -g @useful-icon-mem  "MEM"  # default 
-set -g @useful-icon-disk "DISK" # default 󰋊
+set -g @useful-icon-load ""     # default Nerd Font glyph
+set -g @useful-icon-mem  ""
+set -g @useful-icon-disk "󰋊"
+```
+
+### Cache directory
+
+Each script caches results to disk. By default the plugin uses `${TMPDIR:-/tmp}/tmux-useful-<UID>-<socket-hash>` so multiple servers, multiple users on a host, and multiple tmux sockets don't collide. Override:
+
+```tmux
+set -g @useful-cache-dir "/tmp/my-cache-dir"
+```
+
+## Troubleshooting
+
+| Symptom | What's happening |
+|---|---|
+| The bar didn't change after install | `status-right` is empty or doesn't reference any `#{useful_*}` placeholder. Either set `@useful-default-layout on` or paste the [Custom layout](#custom-layout) example. |
+| Boxes (□) where the battery icon should be | No Nerd Font installed. See [No Nerd Font?](#no-nerd-font). |
+| Spotify never appears | (a) Spotify isn't running, or (b) it's paused. The segment is empty by design when nothing is playing. |
+| Weather is empty | (a) `curl` fetch failed and there's no cached value yet, (b) you set an invalid location, or (c) `@useful-weather-enabled off` is set. |
+| Weather has a `~` prefix | Cached data is older than `@useful-weather-stale` (default 1hr). Network is probably down. |
+| `0:claude` shows the version (`0:2.1.119`) instead | tmux's `automatic-rename` is mirroring the program's terminal title. Add `setw -g automatic-rename-format "#{pane_current_command}"` to `~/.tmux.conf`. |
+
+## Uninstalling
+
+The plugin mutates `status-left`/`status-right` *in-place* by interpolating placeholders to `#(...)` shell-outs. Removing the `@plugin` line from your config is not enough on its own to revert the running tmux server. To fully clean up:
+
+```sh
+tmux kill-server         # nuclear option, simplest
+# OR, manually:
+tmux set -gu status-right
+tmux set -gu status-left
+# then reload your config to repopulate them from your conf
 ```
 
 ## Development
 
 ```sh
 make lint    # shellcheck on every script
-make test    # run the bats test suite
+make test    # 79 bats unit tests
 make check   # both
 ```
 
-The plugin ships with **45 unit tests** covering threshold logic, cache behavior, location-namespacing, glyph progression, formatter interpolation, and option overrides. CI runs them on macOS for every push and PR (`.github/workflows/ci.yml`).
-
-If you're an LLM coding agent working on this repo, see [`AGENTS.md`](AGENTS.md) for conventions and pitfalls.
-
-## Why use this?
-
-A typical tmux status line looks like a cockpit: every metric on screen, all the time, in its own colored block. The problem is that **every block competes for attention with the same visual weight**, so nothing actually pops when something needs your attention.
-
-This plugin inverts that. Routine numbers are hidden. Color is reserved for state, not identity. The bar is calm 95% of the time and lights up the moment the machine — or your music — needs your attention.
+CI runs lint + tests on macOS for every push and PR. See [`AGENTS.md`](AGENTS.md) for conventions if you're an LLM coding agent.
 
 ## License
 

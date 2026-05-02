@@ -80,7 +80,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1000
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
     [[ "$output" != *"…Lorem"* ]]
@@ -91,7 +91,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1011
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"adipiscing"* ]]
     [[ "$output" == *"…"* ]]
@@ -103,7 +103,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     # t=6: 4s into slide (out of 8s) → offset ≈ overflow/2 ≈ 17
     export TMUX_USEFUL_NOW=1006
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"…"*"…"* ]]
     [[ "$output" != *"Lorem ipsum"* ]]
@@ -115,7 +115,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1100
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -128,12 +128,12 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=2000
     # Pre-existing state for a different (long-since-settled) track.
-    printf "OLD · TRACK|100" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "OLD · TRACK|100" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     # New track: t=0 of cycle → dwell-start truncated view.
     [[ "$output" == *"Lorem ipsum do…"* ]]
     # State file should now contain the new track + cycle_start=NOW.
-    grep -q "^${LONG_TRACK}|2000$" "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    grep -q "^${LONG_TRACK}|2000$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
 }
 
 @test "scroll disabled keeps truncated start regardless of elapsed time" {
@@ -142,7 +142,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export MOCK_OPT_useful_spotify_scroll=off
     export TMUX_USEFUL_NOW=1006
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -154,28 +154,59 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     # Initial play at t=1000.
     export TMUX_USEFUL_NOW=1000
     run_spotify
-    state_after_play=$(cat "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state")
+    state_after_play=$(cat "$TMUX_USEFUL_CACHE_DIR/spotify-state")
 
     # Pause: osascript returns empty. Track cache must be invalidated so
     # spotify.sh actually re-asks osascript and sees the empty state.
-    rm -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-track-cache"
+    rm -f "$TMUX_USEFUL_CACHE_DIR/spotify-track"
     export MOCK_SPOTIFY_TRACK=""
     export TMUX_USEFUL_NOW=1100
     run_spotify
     [ "$output" = "" ]
     # Critical: state file is preserved across pause.
-    [ -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state" ]
-    [ "$(cat "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state")" = "$state_after_play" ]
+    [ -f "$TMUX_USEFUL_CACHE_DIR/spotify-state" ]
+    [ "$(cat "$TMUX_USEFUL_CACHE_DIR/spotify-state")" = "$state_after_play" ]
 
     # Resume same track much later. Should NOT reset cycle.
-    rm -f "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-track-cache"
+    rm -f "$TMUX_USEFUL_CACHE_DIR/spotify-track"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export TMUX_USEFUL_NOW=1200
     run_spotify
     # State's cycle_start should still be 1000 (not 1200).
-    grep -q "^${LONG_TRACK}|1000$" "$TMUX_USEFUL_CACHE_DIR/tmux-useful-spotify-state"
+    grep -q "^${LONG_TRACK}|1000$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
     # Display should be settled, not in slide phase.
     [[ "$output" == *"Lorem ipsum do…"* ]]
+}
+
+@test "REDUCED_MOTION env var disables scroll" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    export TMUX_USEFUL_NOW=1006
+    export REDUCED_MOTION=1
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    run_spotify
+    # Should be settled-truncated regardless of elapsed time in slide window.
+    [[ "$output" == *"Lorem ipsum do…"* ]]
+}
+
+@test "TMUX_USEFUL_REDUCED_MOTION disables scroll" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    export TMUX_USEFUL_NOW=1006
+    export TMUX_USEFUL_REDUCED_MOTION=1
+    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    run_spotify
+    [[ "$output" == *"Lorem ipsum do…"* ]]
+}
+
+@test "segment disabled → empty even when playing" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="Test · Track"
+    export MOCK_OPT_useful_spotify_enabled=off
+    run_spotify
+    [ "$output" = "" ]
 }
 
 @test "no slide spawned for tracks that fit (length ≤ max)" {

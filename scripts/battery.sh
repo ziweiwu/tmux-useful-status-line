@@ -6,7 +6,9 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=helpers.sh
 source "$DIR/helpers.sh"
 
-CACHE_FILE="${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-battery-cache"
+segment_enabled "battery" || exit 0
+
+CACHE_FILE="$(useful_cache_dir)/battery"
 cache_check "$CACHE_FILE" 10 && exit 0
 
 OK=$(color_ok)
@@ -47,15 +49,32 @@ case "$SHOW_WHEN" in
         ;;
 esac
 
+# Glyphs are overrideable for users without a Nerd Font. The defaults are
+# Nerd Font codepoints; the @useful-batt-icons-ascii toggle swaps to ASCII
+# fallbacks that render in any terminal.
+if [ "$(get_tmux_option "@useful-batt-icons-ascii" "off")" = "on" ]; then
+    icon_charging="+"
+    icon_full="[####]"
+    icon_high="[### ]"
+    icon_mid="[##  ]"
+    icon_low="[#   ]"
+    icon_empty="[!]"
+else
+    icon_charging=$(get_tmux_option "@useful-batt-icon-charging" "󰂄")
+    icon_full=$(get_tmux_option "@useful-batt-icon-full" "󰂂")
+    icon_high=$(get_tmux_option "@useful-batt-icon-high" "󰂀")
+    icon_mid=$(get_tmux_option "@useful-batt-icon-mid" "󰁾")
+    icon_low=$(get_tmux_option "@useful-batt-icon-low" "󰁺")
+    icon_empty=$(get_tmux_option "@useful-batt-icon-empty" "󰂃")
+fi
+
 if [ "$charging" -eq 1 ]; then
-    glyph="󰂄"
-elif [ "$pct" -ge 90 ]; then glyph="󰂂"
-elif [ "$pct" -ge 75 ]; then glyph="󰂀"
-elif [ "$pct" -ge 60 ]; then glyph="󰁾"
-elif [ "$pct" -ge 45 ]; then glyph="󰁼"
-elif [ "$pct" -ge 30 ]; then glyph="󰁺"
-elif [ "$pct" -ge 15 ]; then glyph="󰁻"
-else glyph="󰂃"; fi
+    glyph="$icon_charging"
+elif [ "$pct" -ge 90 ]; then glyph="$icon_full"
+elif [ "$pct" -ge 60 ]; then glyph="$icon_high"
+elif [ "$pct" -ge 30 ]; then glyph="$icon_mid"
+elif [ "$pct" -ge 15 ]; then glyph="$icon_low"
+else glyph="$icon_empty"; fi
 
 if [ "$charging" -eq 0 ] && [ "$pct" -lt "$BATT_CRIT" ]; then
     color="$CRIT"
@@ -65,4 +84,10 @@ else
     color="$OK"
 fi
 
-printf " #[fg=%s]%s %s%%#[fg=default]" "$color" "$glyph" "$pct" | tee "$CACHE_FILE"
+# Crit gets a non-color "!" prefix for color-blind users.
+prefix=""
+if [ "$charging" -eq 0 ] && [ "$pct" -lt "$BATT_CRIT" ]; then
+    prefix="!"
+fi
+
+printf " #[fg=%s]%s%s %s%%#[fg=default]" "$color" "$prefix" "$glyph" "$pct" | tee "$CACHE_FILE"

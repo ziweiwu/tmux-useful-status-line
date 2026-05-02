@@ -103,6 +103,35 @@ run_system() {
     [[ "$output" == *"50%"* ]]
 }
 
+@test "crit warnings get a leading '!' for color-blind users" {
+    export MOCK_LOADAVG="{ 12.0 12.0 12.0 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=5     # 95% used → crit
+    export MOCK_DISK_PCT=98    # crit
+    run_system
+    # Each crit warning prefixed with "!" — three exclamation marks.
+    [ "$(printf "%s" "$output" | tr -cd '!' | wc -c)" -eq 3 ]
+}
+
+@test "warn warnings do NOT get the '!' prefix" {
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=20    # 80% → warn (not crit)
+    export MOCK_DISK_PCT=85    # warn
+    run_system
+    [[ "$output" != *"!"* ]]
+}
+
+@test "segment disabled → empty even with critical metrics" {
+    export MOCK_OPT_useful_system_enabled=off
+    export MOCK_LOADAVG="{ 12.0 12.0 12.0 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=5
+    export MOCK_DISK_PCT=98
+    run_system
+    [ "$output" = "" ]
+}
+
 @test "cache hit returns cached output without recomputation" {
     export MOCK_LOADAVG="{ 7.0 7.0 7.0 }"
     export MOCK_NCPU=8

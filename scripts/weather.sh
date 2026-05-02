@@ -6,6 +6,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=helpers.sh
 source "$DIR/helpers.sh"
 
+segment_enabled "weather" || exit 0
+
 REFRESH_SEC=$(get_tmux_option "@useful-weather-refresh" 900)
 STALE_SEC=$(get_tmux_option "@useful-weather-stale" 3600)
 LOCATION=$(get_tmux_option "@useful-weather-location" "")
@@ -15,7 +17,7 @@ DIM=$(color_dim)
 # Namespace the cache by location+format so changing config yields a fresh fetch
 # instead of returning stale data from a different city.
 cache_key=$(printf "%s|%s" "$LOCATION" "$FORMAT" | shasum | cut -c1-8)
-CACHE_FILE="${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-weather-cache-${cache_key}"
+CACHE_FILE="$(useful_cache_dir)/weather-${cache_key}"
 
 now=$(date +%s)
 needs_refresh=1
@@ -39,10 +41,12 @@ fi
 cache_age=$(( now - $(stat -f %m "$CACHE_FILE") ))
 text=$(cat "$CACHE_FILE")
 # Weather is metadata, not status — render in dim by default so it doesn't
-# compete with status colors. Stale (>1hr) data adds italics for an extra
-# subtle "this might be old" cue without further dimming.
+# compete with status colors. Stale (>1hr) data prepends a "~" — a font-
+# agnostic, screen-reader-friendly cue that the data may be old. (Italics in
+# monospace fonts often render identically to regular and don't survive
+# screen readers, so we avoid relying on them.)
 if [ "$cache_age" -gt "$STALE_SEC" ]; then
-    printf " #[fg=%s,italics]%s#[default]" "$DIM" "$text"
+    printf " #[fg=%s]~%s#[fg=default]" "$DIM" "$text"
 else
     printf " #[fg=%s]%s#[fg=default]" "$DIM" "$text"
 fi

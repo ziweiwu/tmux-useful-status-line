@@ -74,11 +74,44 @@ run_battery() {
     [[ "$output" == *"30%"* ]]
 }
 
-@test "10% on battery (< default crit 20) → red" {
+@test "10% on battery (< default crit 20) → red with '!' prefix" {
     export MOCK_BATT_AC=0
     export MOCK_BATT_PCT=10
     run_battery
     [[ "$output" == *"#[fg=#bf616a]"* ]]
+    [[ "$output" == *"!"* ]]
+}
+
+@test "30% on battery (warn but not crit) → no '!' prefix" {
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=30
+    run_battery
+    [[ "$output" != *"!"* ]]
+}
+
+@test "ASCII icons toggle replaces nerd-font glyphs" {
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=80
+    export MOCK_OPT_useful_batt_icons_ascii=on
+    run_battery
+    [[ "$output" == *"[### ]"* ]]
+    [[ "$output" != *"󰂀"* ]]
+}
+
+@test "custom icon override takes effect" {
+    export MOCK_BATT_AC=1
+    export MOCK_BATT_PCT=80
+    export MOCK_OPT_useful_batt_icon_charging="⚡"
+    run_battery
+    [[ "$output" == *"⚡"* ]]
+}
+
+@test "segment disabled → empty even when discharging low" {
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=10
+    export MOCK_OPT_useful_battery_enabled=off
+    run_battery
+    [ "$output" = "" ]
 }
 
 @test "10% on AC → green (charging overrides low warning)" {
@@ -103,13 +136,14 @@ run_battery() {
     [[ "$output" == *"#[fg=#ebcb8b]"* ]]
 }
 
-@test "glyph progression by percent" {
+@test "glyph progression by percent (5-tier ladder)" {
     export MOCK_BATT_AC=0
-    for pct_glyph in "92:󰂂" "80:󰂀" "65:󰁾" "50:󰁼" "35:󰁺" "20:󰁻" "5:󰂃"; do
+    # Tiers: ≥90 full, ≥60 high, ≥30 mid, ≥15 low, <15 empty.
+    for pct_glyph in "92:󰂂" "80:󰂀" "65:󰂀" "50:󰁾" "35:󰁾" "20:󰁺" "5:󰂃"; do
         pct="${pct_glyph%%:*}"
         glyph="${pct_glyph##*:}"
         export MOCK_BATT_PCT="$pct"
-        rm -f "$TMUX_USEFUL_CACHE_DIR"/tmux-useful-battery-cache
+        rm -f "$TMUX_USEFUL_CACHE_DIR"/battery
         run_battery
         [[ "$output" == *"$glyph"* ]] || {
             echo "expected glyph '$glyph' for $pct%, got: $output" >&2
