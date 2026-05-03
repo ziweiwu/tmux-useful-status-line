@@ -71,15 +71,42 @@ load_pct=$(awk -v l="${load1:-0}" -v n="${ncpu:-1}" 'BEGIN { printf "%d", (l/n)*
 # Crit warnings get a leading "!" so users with deuteranopia/protanopia can
 # distinguish warn (yellow→mustard) from crit (red→mustard) without color.
 # Healthy values render in dim when an "always" mode is selected.
-# Show CPU as a percentage of cores (load1 ÷ ncpu × 100). Easier to read
-# than a raw load average — values cluster around 0–100%, with overload
-# clearly visible above 100%.
+# Render the CPU value either as text "cpu 70%" or as a fill-bar where each
+# character represents one core's worth of load. With load1=7 on ncpu=10,
+# bar = "███████░░░" — visually shows utilization across cores.
+CPU_STYLE=$(get_tmux_option "@useful-cpu-style" "text")
+cpu_value=""
+if [ "$CPU_STYLE" = "bar" ]; then
+    bar_width="${ncpu:-1}"
+    [ "$bar_width" -gt 16 ] && bar_width=16
+    [ "$bar_width" -lt 4 ] && bar_width=4
+    # Glyphs: empty + 1/8 .. 8/8 fill steps for sub-character precision.
+    glyphs="░▏▎▍▌▋▊▉█"
+    load_eighths=$(awk -v l="${load1:-0}" 'BEGIN { printf "%d", l * 8 }')
+    max_eighths=$(( bar_width * 8 ))
+    [ "$load_eighths" -gt "$max_eighths" ] && load_eighths="$max_eighths"
+    bar=""
+    remaining="$load_eighths"
+    for ((i=0; i<bar_width; i++)); do
+        if [ "$remaining" -ge 8 ]; then
+            bar+="█"
+            remaining=$(( remaining - 8 ))
+        else
+            bar+="${glyphs:$remaining:1}"
+            remaining=0
+        fi
+    done
+    cpu_value="$bar"
+else
+    cpu_value="${load_pct}%"
+fi
+
 if [ "$load_pct" -ge "$LOAD_CRIT" ]; then
-    out+=" #[fg=$CRIT]!$ICON_LOAD ${load_pct}%"
+    out+=" #[fg=$CRIT]!$ICON_LOAD $cpu_value"
 elif [ "$load_pct" -ge "$LOAD_WARN" ]; then
-    out+=" #[fg=$WARN]$ICON_LOAD ${load_pct}%"
+    out+=" #[fg=$WARN]$ICON_LOAD $cpu_value"
 elif should_show_healthy load; then
-    out+=" #[fg=$DIM]$ICON_LOAD ${load_pct}%"
+    out+=" #[fg=$DIM]$ICON_LOAD $cpu_value"
 fi
 
 if is_darwin; then
