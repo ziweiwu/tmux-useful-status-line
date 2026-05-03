@@ -31,7 +31,8 @@ teardown() {
     export MOCK_DISK_PCT=10
     run "$SCRIPTS_DIR/system.sh"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"8.00"* ]]
+    # 8/8 cores = 100% → crit ("!cpu 100%")
+    [[ "$output" == *"100%"* ]]
 }
 
 @test "linux system: memory percent computed from free's 'available' column" {

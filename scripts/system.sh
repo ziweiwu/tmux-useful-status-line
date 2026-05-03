@@ -35,9 +35,12 @@ MEM_CRIT=$(get_tmux_option "@useful-mem-crit" 90)
 DISK_WARN=$(get_tmux_option "@useful-disk-warn" 80)
 DISK_CRIT=$(get_tmux_option "@useful-disk-crit" 95)
 
-ICON_LOAD=$(get_tmux_option "@useful-icon-load" "")
-ICON_MEM=$(get_tmux_option "@useful-icon-mem" "")
-ICON_DISK=$(get_tmux_option "@useful-icon-disk" "󰋊")
+# Defaults are short text labels — clearer than glyphs at a glance, and they
+# render in any terminal without a Nerd Font. Override to glyphs if you
+# prefer:  set -g @useful-icon-load "" / @useful-icon-mem "" / @useful-icon-disk "󰋊"
+ICON_LOAD=$(get_tmux_option "@useful-icon-load" "cpu")
+ICON_MEM=$(get_tmux_option "@useful-icon-mem" "mem")
+ICON_DISK=$(get_tmux_option "@useful-icon-disk" "disk")
 
 # Visibility mode for healthy values:
 #   warn-and-crit       — silent when healthy (default; original "state-only" design)
@@ -68,12 +71,15 @@ load_pct=$(awk -v l="${load1:-0}" -v n="${ncpu:-1}" 'BEGIN { printf "%d", (l/n)*
 # Crit warnings get a leading "!" so users with deuteranopia/protanopia can
 # distinguish warn (yellow→mustard) from crit (red→mustard) without color.
 # Healthy values render in dim when an "always" mode is selected.
+# Show CPU as a percentage of cores (load1 ÷ ncpu × 100). Easier to read
+# than a raw load average — values cluster around 0–100%, with overload
+# clearly visible above 100%.
 if [ "$load_pct" -ge "$LOAD_CRIT" ]; then
-    out+=" #[fg=$CRIT]!$ICON_LOAD $load1"
+    out+=" #[fg=$CRIT]!$ICON_LOAD ${load_pct}%"
 elif [ "$load_pct" -ge "$LOAD_WARN" ]; then
-    out+=" #[fg=$WARN]$ICON_LOAD $load1"
+    out+=" #[fg=$WARN]$ICON_LOAD ${load_pct}%"
 elif should_show_healthy load; then
-    out+=" #[fg=$DIM]$ICON_LOAD $load1"
+    out+=" #[fg=$DIM]$ICON_LOAD ${load_pct}%"
 fi
 
 if is_darwin; then

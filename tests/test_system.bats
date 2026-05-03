@@ -33,7 +33,7 @@ run_system() {
     run_system
     [ "$status" -eq 0 ]
     [[ "$output" == *"#[fg=#ebcb8b]"* ]]
-    [[ "$output" == *"6.50"* ]]
+    [[ "$output" == *"81%"* ]]   # 6.5/8 = 81%
 }
 
 @test "load above crit (≥100% of cores) → red" {
@@ -151,7 +151,9 @@ run_system() {
     export MOCK_DISK_PCT=10
     export MOCK_OPT_useful_system_show_when=all-always
     run_system
-    [[ "$output" == *"0.1"* ]]
+    # 0.1/8 = 1% — the always-mode shows it as "cpu 1%".
+    [[ "$output" == *"cpu"* ]]
+    [[ "$output" == *"1%"* ]]
 }
 
 @test "warn band overrides healthy-color even when always-mode is on" {
