@@ -122,6 +122,49 @@ run_system() {
     [[ "$output" != *"!"* ]]
 }
 
+@test "show-when=mem-and-disk-always renders healthy mem and disk in dim" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }"   # healthy
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=80                  # 20% used → healthy
+    export MOCK_DISK_PCT=10                  # healthy
+    export MOCK_OPT_useful_system_show_when=mem-and-disk-always
+    run_system
+    [[ "$output" == *"#[fg=#7b8696]"* ]]
+    [[ "$output" == *"20%"* ]]
+    [[ "$output" == *"10%"* ]]
+}
+
+@test "show-when=mem-and-disk-always omits healthy load" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=80
+    export MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_system_show_when=mem-and-disk-always
+    run_system
+    [[ "$output" != *"0.1"* ]]
+}
+
+@test "show-when=all-always renders healthy load too" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=80
+    export MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_system_show_when=all-always
+    run_system
+    [[ "$output" == *"0.1"* ]]
+}
+
+@test "warn band overrides healthy-color even when always-mode is on" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=20                  # 80% → warn
+    export MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_system_show_when=mem-and-disk-always
+    run_system
+    [[ "$output" == *"#[fg=#ebcb8b]"* ]]     # warn yellow on mem
+    [[ "$output" == *"#[fg=#7b8696]"* ]]     # dim on healthy disk
+}
+
 @test "segment disabled → empty even with critical metrics" {
     export MOCK_OPT_useful_system_enabled=off
     export MOCK_LOADAVG="{ 12.0 12.0 12.0 }"
