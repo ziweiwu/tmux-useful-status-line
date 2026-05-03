@@ -1,84 +1,44 @@
 # AGENTS.md
 
-Guidance for LLM coding agents (Claude Code, Cline, Cursor, Aider, Gemini CLI, etc.) working in this repo.
+For LLM coding agents (and humans) working in this repo.
 
-## What this project is
+## Project shape
 
-`tmux-useful-status-line` is a tmux status-line plugin for macOS. The design principle is **state over decoration**: routine values stay hidden, color is reserved for state changes, and the bar pops only when something needs attention.
+`tmux-useful-status-line` is a tmux status-line plugin (macOS + Linux for `system` and `battery`; spotify is macOS-only). Design contract: **silent when healthy, loud when not**. Color is reserved for state, never decoration.
 
-## Repo layout
-
-```
-.
-├── useful-status-line.tmux   # TPM entry point — runs once on tmux load.
-│                              # Replaces #{useful_*} placeholders in user's
-│                              # status-left/status-right with #(...) shell-outs.
-├── scripts/
-│   ├── helpers.sh            # Shared bash: get_tmux_option, cache_check, color_*.
-│   ├── system.sh             # CPU load / mem / disk — silent when healthy.
-│   ├── battery.sh            # Battery glyph + state color.
-│   ├── weather.sh            # wttr.in fetch with location/format-namespaced cache.
-│   └── spotify.sh            # AppleScript Spotify now-playing, hidden when idle.
-├── tests/
-│   ├── test_helpers.bash     # Shared bats setup: stubs PATH, isolated cache dir.
-│   ├── stubs/                # Fake tmux/sysctl/pmset/curl/osascript/etc.
-│   └── test_*.bats           # One bats file per script.
-├── .github/workflows/ci.yml  # macOS runner: shellcheck + bats on push/PR.
-├── Makefile                  # `make test`, `make lint`, `make check`.
-├── README.md                 # User-facing install + configuration.
-└── LICENSE                   # MIT.
-```
+Each segment is a single bash script under `scripts/` that emits tmux-format-coloured text or empty.
 
 ## Conventions
 
-- **Bash, not zsh.** Every script starts with `#!/usr/bin/env bash`.
-- **`shellcheck -x` must pass.** The `-x` follows `source` directives. CI enforces this.
-- **No external deps beyond macOS-shipped tools** (`pmset`, `osascript`, `memory_pressure`, `sysctl`, `df`, `pgrep`) plus `curl` for weather. Don't introduce jq/python/node.
-- **Cache aggressively.** Every script that calls a non-trivial command (osascript, curl, memory_pressure, top) writes a cache file under `${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-*-cache` and short-circuits on a fresh hit.
-- **Silent when healthy.** Status segments emit empty output unless their metric is in a warning/critical band. The bar's job is to pop when it matters, not to display dashboards.
-- **Configuration via tmux options**, not env vars at the user level. Read with `get_tmux_option "@useful-foo" "default"` from `helpers.sh`.
-- **Color via `#[fg=...]`, not background blocks.** Background blocks all-the-time create visual noise; foreground color reserves attention for state.
-- **Always end colored runs with `#[fg=default]`** so we don't bleed into adjacent segments.
+- **Bash**, `#!/usr/bin/env bash`. `shellcheck -x` must pass — CI enforces.
+- **Source order:** `source "$DIR/helpers.sh"` first; that brings in `get_tmux_option`, `cache_check`, `useful_cache_dir`, `is_darwin`/`is_linux`, `segment_enabled`, and the `color_*` helpers.
+- **No external deps** beyond what each platform ships (`pmset`, `sysctl`, `memory_pressure`, `pgrep`, `osascript` on macOS; `/proc`, `free`, `nproc` on Linux). No jq, python, node.
+- **Cache aggressively.** Every script that hits a slow source caches its output in `$(useful_cache_dir)` and short-circuits with `cache_check`.
+- **Configuration only via tmux options** (`@useful-*`), not env vars. Read with `get_tmux_option "@useful-foo" "default"`.
+- **Color via `#[fg=...]` foreground only.** No background blocks. Always end a coloured run with `#[fg=default]`.
 
-## Adding a new metric
+## Adding a segment
 
-Checklist when introducing a new `scripts/foo.sh`:
-
-1. Source `helpers.sh` from `$DIR/helpers.sh` (resolves at runtime regardless of cwd).
-2. Define `CACHE_FILE="${TMUX_USEFUL_CACHE_DIR:-/tmp}/tmux-useful-foo-cache"` and short-circuit with `cache_check "$CACHE_FILE" <ttl> && exit 0`.
-3. Read all tunables via `get_tmux_option "@useful-foo-..." "<default>"`.
-4. Emit nothing in the healthy band. Only emit when the value crosses a configured threshold.
-5. Add the placeholder to `useful-status-line.tmux`'s `placeholders`/`replacements` arrays.
-6. Add a stub under `tests/stubs/` if your script invokes any external command not already stubbed.
-7. Add `tests/test_foo.bats` with at least: healthy → empty; warn band; crit band; cache reuse; option override.
-8. Update README's placeholder table and configuration sections.
-9. Run `make check` before committing.
-
-## Testing
-
-- Framework: [`bats-core`](https://github.com/bats-core/bats-core).
-- Stubs live in `tests/stubs/` and are prepended to `PATH` by `setup_test_env`. Stubs read `MOCK_*` env vars to vary their output between tests.
-- The `tmux` stub responds to `show-option -gqv @useful-foo-bar` by reading `$MOCK_OPT_useful_foo_bar` (strip `@`, replace `-` with `_`).
-- Each test gets a fresh `TMUX_USEFUL_CACHE_DIR` via `mktemp -d` so caches never leak between cases.
-- Run all tests: `make test` (or `bats tests/*.bats`).
+1. `scripts/foo.sh` — `source` helpers, `segment_enabled "foo" || exit 0`, `cache_check`, do work, emit either empty or ` <icon> <value>` (single leading space, no trailing).
+2. Register the placeholder in `useful-status-line.tmux`.
+3. Add `tests/test_foo.bats` covering: healthy → empty; warn / crit bands; cache reuse; `@useful-foo-enabled off` → empty.
+4. Add stubs to `tests/stubs/` for any new external command.
+5. README placeholder table + Configuration block + CHANGELOG entry.
+6. `make check`.
 
 ## Things to avoid
 
-- **Don't add background-color blocks** to scripts or the default config. The plugin's identity is foreground-only color; PRs that re-introduce powerline-style chrome will be rejected.
-- **Don't shell out per-segment more than once per refresh.** If you need multiple values from the same source, compute them in one script.
-- **Don't break the silent-when-healthy contract.** A new segment that prints "OK" all day defeats the bar's whole point.
-- **Don't hard-code colors.** Use `color_ok` / `color_warn` / `color_crit` / `color_accent` / `color_dim` from `helpers.sh` so users can override via `@useful-color-*`.
-- **Don't write outside the cache dir.** No state in `~/.config`, `$HOME`, etc. — `TMUX_USEFUL_CACHE_DIR` (default `/tmp`) is the only writable location.
-- **Don't introduce Linux-specific commands silently.** This is a macOS plugin today. Cross-platform support is a future feature; if you add it, gate it behind `uname -s` checks and add Linux stubs + tests.
+- Background-color blocks (decoration).
+- Always-on output for healthy state.
+- Hard-coded hex colors — use `color_*` helpers so themes still apply.
+- Writing outside `$(useful_cache_dir)`.
+- Bash 4-only syntax — macOS ships bash 3.2.
 
-## Common pitfalls
+## Pitfalls (load-bearing)
 
-- `tmux` percent-format expansion (`%H`, `%S`, etc.) runs on the format string, **not** on `#(...)` script output. So scripts can emit literal `%` freely. The user's tmux.conf still needs `%%` to get a literal `%` inside a format string.
-- `memory_pressure` reports *free* percentage; we compute used = 100 − free.
-- `pmset -g batt` line-2 includes the percent as `<digits>%;` — match `[0-9]{1,3}%` not just `[0-9]+%`.
-- `wttr.in` returns plain text like `location not found: location not found` for invalid locations. The success regex must explicitly filter these strings; an empty-check alone is not enough.
-- The `#[fg=default]` reset is mandatory at the end of any colored run — without it, color bleeds into whatever segment comes next.
+- `${var:offset:length}` is bytewise unless `LC_CTYPE` is UTF-8. `helpers.sh` sets a UTF-8 locale at source time — keep it that way or CJK/RTL breaks.
+- `stat -f %m` is BSD; GNU is `stat -c %Y`. Use `file_mtime` from helpers, not `stat` directly.
+- tmux strftime (`%H`, `%S`) runs on format strings, not on `#()` output, so scripts can emit literal `%` freely.
+- The `#[fg=default]` reset is mandatory at the end of any coloured run, otherwise color bleeds.
 
-## When in doubt
-
-Read `README.md` (user contract) and the existing test files (executable spec). If a behavior isn't in either, it isn't a guaranteed contract — feel free to change it, but add a test alongside the change.
+When something isn't covered above, look at the existing tests — they're the executable spec.
