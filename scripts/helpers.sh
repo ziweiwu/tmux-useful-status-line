@@ -15,10 +15,15 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
         ;;
 esac
 
-# Portable file-mtime in seconds. BSD/macOS uses `stat -f %m`, GNU uses
-# `stat -c %Y`. Try BSD first (we're macOS-first); fall back to GNU.
+# Portable file-mtime in seconds. BSD/macOS uses `stat -f %m`; GNU's `-f`
+# is `--file-system` mode and breaks here, so we dispatch by REAL uname,
+# not by TMUX_USEFUL_OS_OVERRIDE (the override only swaps script logic;
+# the underlying `stat` binary still has its native syntax).
 file_mtime() {
-    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+    case "$(uname -s 2>/dev/null)" in
+        Darwin|*BSD*) stat -f %m "$1" 2>/dev/null ;;
+        *)            stat -c %Y "$1" 2>/dev/null ;;
+    esac
 }
 
 # OS detection. Tests can override with TMUX_USEFUL_OS_OVERRIDE to exercise
