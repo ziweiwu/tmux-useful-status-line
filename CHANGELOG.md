@@ -13,10 +13,15 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
   and pure-version-number commands. Adds situational awareness about what
   you're focused on, addressing the "active-buffer indicator" pattern from
   best-in-class TUI apps (Neovim/lualine, Claude Code's mode line).
-- **Theme presets** via `@useful-theme`: `nord` *(default)*, `catppuccin`,
-  `gruvbox`, `everforest`, `vitesse`, `rose-pine`. All dim tones pass WCAG
-  AA contrast against typical dark terminal backgrounds. Individual
-  `@useful-color-*` overrides still win over the theme.
+- **Theme presets** via `@useful-theme`. Now ships **15 variants** across
+  9 theme families, including the full Catppuccin family (Mocha/Macchiato/
+  Frappe/Latte), Gruvbox light+dark, Rose Pine + Dawn, Tokyo Night,
+  Dracula, Solarized light+dark, and One Dark. All dim tones pass WCAG AA
+  contrast against the canonical background for each variant.
+- **Auto light/dark switching** (Ghostty-style): `@useful-theme
+  "dark:catppuccin-mocha,light:catppuccin-latte"` resolves to the dark or
+  light half based on the system appearance. Detection is `defaults read`
+  on macOS, `$COLORFGBG` heuristic on Linux. Cached for 60s.
 - **Linux support** for `system` and `battery` segments. macOS-specific data
   sources (`sysctl`, `memory_pressure`, `pmset`) are still used on Darwin;
   Linux uses `/proc/loadavg`, `nproc`/`/proc/cpuinfo`, `free`, and

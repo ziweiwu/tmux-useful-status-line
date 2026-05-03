@@ -195,23 +195,41 @@ Empty outside a repo. Branch name in dim color when the working tree is clean; w
 
 ### Themes
 
-Pick a bundled palette in one line. Defaults to Nord. Individual color
+Pick a bundled palette in one line. Defaults to Nord. Individual `@useful-color-*`
 overrides win over the theme preset.
 
 ```tmux
-set -g @useful-theme "nord"           # nord | catppuccin | gruvbox | everforest | vitesse | rose-pine
+set -g @useful-theme "catppuccin-mocha"
 ```
 
-| Theme | OK | Warn | Crit | Accent | Dim |
-|---|---|---|---|---|---|
-| `nord` *(default)* | `#a3be8c` | `#ebcb8b` | `#bf616a` | `#b48ead` | `#7b8696` |
-| `catppuccin` (mocha) | `#a6e3a1` | `#f9e2af` | `#f38ba8` | `#cba6f7` | `#9399b2` |
-| `gruvbox` (dark) | `#b8bb26` | `#fabd2f` | `#fb4934` | `#d3869b` | `#a89984` |
-| `everforest` (dark) | `#a7c080` | `#dbbc7f` | `#e67e80` | `#d699b6` | `#9da9a0` |
-| `vitesse` (dark) | `#4d9375` | `#d4976c` | `#cb7676` | `#a8b1ff` | `#8a8d96` |
-| `rose-pine` | `#9ccfd8` | `#f6c177` | `#eb6f92` | `#c4a7e7` | `#908caa` |
+**Available themes:**
 
-All theme dim values pass WCAG AA contrast on a typical dark terminal background.
+| Group | Variants |
+|---|---|
+| Nord *(default)* | `nord` |
+| Catppuccin | `catppuccin-mocha` (alias `catppuccin`), `catppuccin-macchiato`, `catppuccin-frappe`, `catppuccin-latte` *(light)* |
+| Gruvbox | `gruvbox` (alias `gruvbox-dark`), `gruvbox-light` |
+| Everforest | `everforest` |
+| Vitesse | `vitesse` |
+| Rose Pine | `rose-pine`, `rose-pine-dawn` *(light)* |
+| Tokyo Night | `tokyo-night` |
+| Dracula | `dracula` |
+| Solarized | `solarized-dark`, `solarized-light` |
+| One Dark | `onedark` |
+
+All dim tones pass WCAG AA contrast against the canonical background for that variant (light themes use darker dim, dark themes use lighter dim).
+
+#### Auto light/dark switching (Ghostty-style)
+
+```tmux
+set -g @useful-theme "dark:catppuccin-mocha,light:catppuccin-latte"
+```
+
+Resolves to the dark variant when the system is in dark mode, light variant otherwise. Detection:
+- **macOS**: `defaults read -g AppleInterfaceStyle`
+- **Linux**: `$COLORFGBG` heuristic (bg index 10–15 = light)
+
+Cached for 60s. The plugin doesn't change your `status-style` background — that's still your responsibility. For full dark/light auto-switching including the bar background, also dispatch on appearance in your own conf, e.g. with [tmux-themepack](https://github.com/jimeh/tmux-themepack) or a small wrapper script.
 
 ### Colors (per-token override)
 

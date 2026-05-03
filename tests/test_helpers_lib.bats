@@ -145,6 +145,59 @@ teardown() {
     [ "$output" = "#a3be8c" ]
 }
 
+@test "theme=tokyo-night sets palette" {
+    export MOCK_OPT_useful_theme=tokyo-night
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#9ece6a" ]
+    run color_accent
+    [ "$output" = "#bb9af7" ]
+}
+
+@test "theme=dracula sets palette" {
+    export MOCK_OPT_useful_theme=dracula
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_crit
+    [ "$output" = "#ff5555" ]
+}
+
+@test "theme=onedark sets palette" {
+    export MOCK_OPT_useful_theme=onedark
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#98c379" ]
+}
+
+@test "theme=catppuccin-latte sets palette tuned for light bg" {
+    export MOCK_OPT_useful_theme=catppuccin-latte
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#40a02b" ]
+    # Latte's dim must darken (against light bg), not lighten.
+    run color_dim
+    [ "$output" = "#6c6f85" ]
+}
+
+@test "theme=dark:X,light:Y resolves to dark variant when light env unset" {
+    # In tests, COLORFGBG isn't set, so the Linux fallback defaults to 'dark'.
+    export TMUX_USEFUL_OS_OVERRIDE=Linux
+    export MOCK_OPT_useful_theme="dark:dracula,light:catppuccin-latte"
+    rm -f "${TMPDIR:-/tmp}/tmux-useful-appearance"
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_crit
+    [ "$output" = "#ff5555" ]   # dracula
+}
+
+@test "theme=dark:X,light:Y resolves to light variant under COLORFGBG light hint" {
+    export TMUX_USEFUL_OS_OVERRIDE=Linux
+    export COLORFGBG="0;15"   # bg index 15 = light
+    export MOCK_OPT_useful_theme="dark:dracula,light:catppuccin-latte"
+    rm -f "${TMPDIR:-/tmp}/tmux-useful-appearance"
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#40a02b" ]   # catppuccin-latte
+}
+
 @test "useful_cache_dir respects @useful-cache-dir option" {
     export MOCK_OPT_useful_cache_dir="/tmp/explicit-override"
     mkdir -p /tmp/explicit-override
