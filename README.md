@@ -182,9 +182,29 @@ set -g @useful-git-skip-untracked  "off"   # speed up dirty check in monorepos
 
 Empty outside a repo. Branch name in dim color when the working tree is clean; warn color with a `*` (or your custom `dirty-mark`) when something is uncommitted, unstaged, or untracked. Detached HEAD shows `@<short-sha>`.
 
-### Colors
+### Themes
 
-Override state colors. Defaults pass WCAG AA contrast on dark backgrounds.
+Pick a bundled palette in one line. Defaults to Nord. Individual color
+overrides win over the theme preset.
+
+```tmux
+set -g @useful-theme "nord"           # nord | catppuccin | gruvbox | everforest | vitesse | rose-pine
+```
+
+| Theme | OK | Warn | Crit | Accent | Dim |
+|---|---|---|---|---|---|
+| `nord` *(default)* | `#a3be8c` | `#ebcb8b` | `#bf616a` | `#b48ead` | `#7b8696` |
+| `catppuccin` (mocha) | `#a6e3a1` | `#f9e2af` | `#f38ba8` | `#cba6f7` | `#9399b2` |
+| `gruvbox` (dark) | `#b8bb26` | `#fabd2f` | `#fb4934` | `#d3869b` | `#a89984` |
+| `everforest` (dark) | `#a7c080` | `#dbbc7f` | `#e67e80` | `#d699b6` | `#9da9a0` |
+| `vitesse` (dark) | `#4d9375` | `#d4976c` | `#cb7676` | `#a8b1ff` | `#8a8d96` |
+| `rose-pine` | `#9ccfd8` | `#f6c177` | `#eb6f92` | `#c4a7e7` | `#908caa` |
+
+All theme dim values pass WCAG AA contrast on a typical dark terminal background.
+
+### Colors (per-token override)
+
+Override individual tones — wins over `@useful-theme`.
 
 ```tmux
 set -g @useful-color-ok     "#a3be8c"

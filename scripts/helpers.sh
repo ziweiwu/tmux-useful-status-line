@@ -57,14 +57,55 @@ cache_check() {
     return 0
 }
 
-# Default colors. The dim used to be #4c566a but failed WCAG AA contrast
-# (~2.4:1 against the typical Nord polar background). Bumped to a value that
-# clears AA for normal text on most dark backgrounds.
+# Default palette = Nord. Other themes are selected via @useful-theme.
+# Individual @useful-color-* options always win over the theme's defaults.
 default_color_ok="#a3be8c"
 default_color_warn="#ebcb8b"
 default_color_crit="#bf616a"
 default_color_accent="#b48ead"
 default_color_dim="#7b8696"
+
+# Theme presets. All values keep WCAG AA contrast vs typical dark terminal
+# backgrounds for the dim/accent (the readability-critical tones).
+case "$(get_tmux_option "@useful-theme" "")" in
+    nord|"")
+        ;;  # defaults already match Nord
+    catppuccin|catppuccin-mocha)
+        default_color_ok="#a6e3a1"
+        default_color_warn="#f9e2af"
+        default_color_crit="#f38ba8"
+        default_color_accent="#cba6f7"
+        default_color_dim="#9399b2"
+        ;;
+    gruvbox|gruvbox-dark)
+        default_color_ok="#b8bb26"
+        default_color_warn="#fabd2f"
+        default_color_crit="#fb4934"
+        default_color_accent="#d3869b"
+        default_color_dim="#a89984"
+        ;;
+    everforest|everforest-dark)
+        default_color_ok="#a7c080"
+        default_color_warn="#dbbc7f"
+        default_color_crit="#e67e80"
+        default_color_accent="#d699b6"
+        default_color_dim="#9da9a0"
+        ;;
+    vitesse|vitesse-dark)
+        default_color_ok="#4d9375"
+        default_color_warn="#d4976c"
+        default_color_crit="#cb7676"
+        default_color_accent="#a8b1ff"
+        default_color_dim="#8a8d96"
+        ;;
+    rose-pine|rosepine)
+        default_color_ok="#9ccfd8"
+        default_color_warn="#f6c177"
+        default_color_crit="#eb6f92"
+        default_color_accent="#c4a7e7"
+        default_color_dim="#908caa"
+        ;;
+esac
 
 # Cache directory: namespaced per UID so multi-user hosts don't collide, and
 # per tmux socket so multiple servers on the same host can't stomp each other.

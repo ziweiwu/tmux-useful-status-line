@@ -8,6 +8,10 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ### Added
 
+- **Theme presets** via `@useful-theme`: `nord` *(default)*, `catppuccin`,
+  `gruvbox`, `everforest`, `vitesse`, `rose-pine`. All dim tones pass WCAG
+  AA contrast against typical dark terminal backgrounds. Individual
+  `@useful-color-*` overrides still win over the theme.
 - **Linux support** for `system` and `battery` segments. macOS-specific data
   sources (`sysctl`, `memory_pressure`, `pmset`) are still used on Darwin;
   Linux uses `/proc/loadavg`, `nproc`/`/proc/cpuinfo`, `free`, and

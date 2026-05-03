@@ -105,6 +105,46 @@ teardown() {
     fi
 }
 
+@test "theme=catppuccin sets palette defaults" {
+    export MOCK_OPT_useful_theme=catppuccin
+    # Re-source helpers so the case statement at module-load time runs again
+    # against the new option value.
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#a6e3a1" ]
+    run color_dim
+    [ "$output" = "#9399b2" ]
+}
+
+@test "theme=gruvbox sets palette defaults" {
+    export MOCK_OPT_useful_theme=gruvbox
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_warn
+    [ "$output" = "#fabd2f" ]
+}
+
+@test "theme=rose-pine sets palette defaults" {
+    export MOCK_OPT_useful_theme=rose-pine
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_accent
+    [ "$output" = "#c4a7e7" ]
+}
+
+@test "explicit @useful-color-ok overrides the theme preset" {
+    export MOCK_OPT_useful_theme=catppuccin
+    export MOCK_OPT_useful_color_ok="#ff0000"
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#ff0000" ]
+}
+
+@test "unknown theme falls through to Nord defaults" {
+    export MOCK_OPT_useful_theme=does-not-exist
+    source "$SCRIPTS_DIR/helpers.sh"
+    run color_ok
+    [ "$output" = "#a3be8c" ]
+}
+
 @test "useful_cache_dir respects @useful-cache-dir option" {
     export MOCK_OPT_useful_cache_dir="/tmp/explicit-override"
     mkdir -p /tmp/explicit-override
