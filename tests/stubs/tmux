@@ -13,5 +13,15 @@ if [ "$1" = "show-option" ] && [ "$2" = "-gqv" ] && [ -n "$3" ]; then
     exit 0
 fi
 
+# tmux display -p '#{format}' — used by pane.sh and git.sh.
+if [ "$1" = "display" ] && [ "$2" = "-p" ] && [ -n "$3" ]; then
+    case "$3" in
+        '#{pane_current_command}') printf '%s' "${MOCK_PANE_COMMAND:-zsh}" ;;
+        '#{pane_current_path}')    printf '%s' "${MOCK_PANE_PATH:-$HOME}" ;;
+        *) printf '' ;;
+    esac
+    exit 0
+fi
+
 # set-option / unset-option / anything else: silent no-op.
 exit 0

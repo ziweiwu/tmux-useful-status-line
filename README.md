@@ -15,6 +15,7 @@ This plugin inverts it: routine numbers are hidden, color is reserved for state,
 | `#{useful_weather}` | Compact `☁ 7°C` from wttr.in, dim by default (it's metadata, not status). Stale data is prefixed `~`. |
 | `#{useful_spotify}` | Now-playing track. Empty when not playing. Long titles slide *once* on track change (matches macOS Now Playing). |
 | `#{useful_git}` | Current branch + dirty mark. Empty outside a repo. Warn-color when the working tree is dirty. |
+| `#{useful_pane}` | Active pane's running command (vim, claude, ssh, …). Empty for default shells (zsh/bash). Like lualine's filename section — situational awareness. |
 
 ## Quick start
 
@@ -168,6 +169,16 @@ set -g @useful-spotify-scroll-duration 8
 When a title is longer than `max-len` and `scroll` is on, the segment slides through the full text **once** on each track change — 2s dwell at start, 8s slow slide, 2s dwell at end, then settles back to a truncated start view. The same track never re-scrolls.
 
 To disable scrolling: `set -g @useful-spotify-scroll off`. To honor a global motion-sensitivity preference: set `REDUCED_MOTION=1` or `TMUX_USEFUL_REDUCED_MOTION=1` in your environment — both force scrolling off.
+
+### Pane (active-command indicator)
+
+```tmux
+set -g @useful-pane-icon       ""
+set -g @useful-pane-max-len    16
+set -g @useful-pane-hide       "zsh bash sh fish dash tmux"
+```
+
+Shows what's running in the active pane — `vim`, `claude`, `ssh`, `kubectl`, etc. — like lualine's filename section. Hidden when the pane is running a default shell (the `hide` list above) or a pure version-number string (e.g. Claude Code's `2.1.126`).
 
 ### Git
 

@@ -16,6 +16,7 @@ placeholders=(
     "\#{useful_weather}"
     "\#{useful_battery}"
     "\#{useful_git}"
+    "\#{useful_pane}"
 )
 
 replacements=(
@@ -24,6 +25,7 @@ replacements=(
     "#($CURRENT_DIR/scripts/weather.sh)"
     "#($CURRENT_DIR/scripts/battery.sh)"
     "#($CURRENT_DIR/scripts/git.sh)"
+    "#($CURRENT_DIR/scripts/pane.sh)"
 )
 
 interpolate() {
@@ -50,11 +52,11 @@ if [ "$default_layout" = "on" ]; then
     cur_right=$(tmux show-option -gqv "status-right")
     if [ -z "$cur_right" ] || [ "$cur_right" = " #{?client_prefix,#[reverse]<Prefix>#[noreverse],} \"#{=21:pane_title}\" %H:%M %d-%b-%y" ]; then
         tmux set-option -gq status-right \
-            "#{useful_spotify}#{useful_git}#{useful_system}#{useful_weather}#{useful_battery} #[fg=#88c0d0]%H:%M #[default]"
+            "#{useful_pane}#{useful_spotify}#{useful_system}#{useful_weather}#{useful_battery} #[fg=#88c0d0]%H:%M #[default]"
     fi
     cur_left=$(tmux show-option -gqv "status-left")
     if [ -z "$cur_left" ] || [ "$cur_left" = "[#S] " ]; then
-        tmux set-option -gq status-left "#[fg=#88c0d0,bold] #S #[default]"
+        tmux set-option -gq status-left "#[fg=#88c0d0,bold] #S #{useful_git} #[default]"
     fi
 fi
 

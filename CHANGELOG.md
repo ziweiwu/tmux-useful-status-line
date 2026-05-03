@@ -8,6 +8,11 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ### Added
 
+- **`#{useful_pane}` segment** — active-pane command indicator (vim, claude,
+  ssh, …) modeled on lualine's filename section. Hidden for default shells
+  and pure-version-number commands. Adds situational awareness about what
+  you're focused on, addressing the "active-buffer indicator" pattern from
+  best-in-class TUI apps (Neovim/lualine, Claude Code's mode line).
 - **Theme presets** via `@useful-theme`: `nord` *(default)*, `catppuccin`,
   `gruvbox`, `everforest`, `vitesse`, `rose-pine`. All dim tones pass WCAG
   AA contrast against typical dark terminal backgrounds. Individual
