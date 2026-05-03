@@ -56,8 +56,11 @@ set -g @useful-default-layout on    # or write your own status-right
 ## Requirements
 
 - tmux 3.0+
-- macOS (uses `pmset`, `osascript`, `memory_pressure`, `sysctl`). Linux support is on the roadmap.
-- `curl` for the weather segment (skip it if you don't use it).
+- **macOS or Linux**:
+  - `system` segment uses `sysctl` + `memory_pressure` on macOS; `/proc/loadavg` + `free` + `nproc` on Linux.
+  - `battery` uses `pmset` on macOS; `/sys/class/power_supply/BAT*/{capacity,status}` on Linux.
+  - `spotify` is macOS-only (uses `osascript`); the segment exits cleanly on Linux.
+- `curl` for the `weather` segment (skip if you don't use it).
 - A Nerd Font for the default battery/disk glyphs — or use the ASCII-fallback toggle below.
 
 ## No Nerd Font?
@@ -172,7 +175,10 @@ To disable scrolling: `set -g @useful-spotify-scroll off`. To honor a global mot
 set -g @useful-git-icon            ""
 set -g @useful-git-dirty-mark      "*"
 set -g @useful-git-max-branch-len  24
+set -g @useful-git-skip-untracked  "off"   # speed up dirty check in monorepos
 ```
+
+`@useful-git-skip-untracked on` skips the untracked-file scan in `git status`, which can be slow (seconds) in large repos. Trade-off: untracked files won't trigger the dirty mark, only staged/unstaged tracked changes will.
 
 Empty outside a repo. Branch name in dim color when the working tree is clean; warn color with a `*` (or your custom `dirty-mark`) when something is uncommitted, unstaged, or untracked. Detached HEAD shows `@<short-sha>`.
 

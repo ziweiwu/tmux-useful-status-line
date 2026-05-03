@@ -48,9 +48,17 @@ if [ "${#branch}" -gt "$MAX_BRANCH_LEN" ]; then
     branch="${branch:0:$((MAX_BRANCH_LEN - 1))}…"
 fi
 
-# Dirty: any uncommitted changes (staged, unstaged, or untracked).
+# Dirty: any uncommitted changes. In monorepos, scanning untracked files can
+# be slow (seconds); the @useful-git-skip-untracked option trades accuracy
+# (untracked files won't trigger the dirty mark) for speed.
 dirty=""
-if [ -n "$(git -C "$top" status --porcelain 2>/dev/null)" ]; then
+if [ "$(get_tmux_option "@useful-git-skip-untracked" "off")" = "on" ]; then
+    porcelain_args="--porcelain --untracked-files=no"
+else
+    porcelain_args="--porcelain"
+fi
+# shellcheck disable=SC2086
+if [ -n "$(git -C "$top" status $porcelain_args 2>/dev/null)" ]; then
     dirty="$DIRTY_MARK"
 fi
 

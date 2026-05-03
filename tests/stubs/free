@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Minimal `free` stub. MOCK_MEM_USED_PCT controls "used" as percent of total.
+total=10000000
+used_pct="${MOCK_MEM_USED_PCT:-50}"
+used=$(( total * used_pct / 100 ))
+free=$(( total - used ))
+avail=$(( total - used ))
+cat <<EOF
+              total        used        free      shared  buff/cache   available
+Mem:        $total      $used      $free        0           0       $avail
+Swap:       0           0           0
+EOF

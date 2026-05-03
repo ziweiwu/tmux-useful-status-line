@@ -69,7 +69,7 @@ run_weather() {
     run_weather
     cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-*)
     # Backdate cache to 2 hours ago so it crosses default 1hr stale threshold.
-    touch -t "$(date -v-2H +%Y%m%d%H%M.%S)" "$cache_file"
+    touch_ago "$cache_file" 7200
     # Force fetch attempt to fail (empty curl) so we fall back to the stale cached value.
     export MOCK_CURL_OUTPUT=""
     run_weather
@@ -103,7 +103,7 @@ run_weather() {
     run_weather
     sleep 2
     cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-*)
-    touch -t "$(date -v-5S +%Y%m%d%H%M.%S)" "$cache_file"
+    touch_ago "$cache_file" 5
     export MOCK_CURL_OUTPUT=""   # block refresh
     run_weather
     [[ "$output" == *"~"* ]]

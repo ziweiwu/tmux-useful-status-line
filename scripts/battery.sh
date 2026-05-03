@@ -7,10 +7,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/helpers.sh"
 
 segment_enabled "battery" || exit 0
-is_darwin || exit 0
 
 CACHE_FILE="$(useful_cache_dir)/battery"
 cache_check "$CACHE_FILE" 10 && exit 0
+
+# Tests can override the Linux power-supply path via this env var.
+SYS_POWER="${TMUX_USEFUL_SYS_POWER:-/sys/class/power_supply}"
 
 OK=$(color_ok)
 WARN=$(color_warn)
@@ -22,14 +24,29 @@ BATT_CRIT=$(get_tmux_option "@useful-batt-crit" 20)
 SHOW_WHEN=$(get_tmux_option "@useful-batt-show-when" "always")
 FULL_PCT=$(get_tmux_option "@useful-batt-full-pct" 95)
 
-batt=$(pmset -g batt 2>/dev/null)
-[ -z "$batt" ] && exit 0
-
-pct=$(echo "$batt" | grep -oE '[0-9]{1,3}%' | head -1 | tr -d '%')
-[ -z "$pct" ] && exit 0
-
+pct=""
 charging=0
-echo "$batt" | grep -q "AC Power" && charging=1
+if is_darwin; then
+    batt=$(pmset -g batt 2>/dev/null)
+    [ -z "$batt" ] && exit 0
+    pct=$(echo "$batt" | grep -oE '[0-9]{1,3}%' | head -1 | tr -d '%')
+    echo "$batt" | grep -q "AC Power" && charging=1
+elif is_linux; then
+    # Find the first BAT* directory.
+    bat_dir=""
+    for d in "$SYS_POWER"/BAT0 "$SYS_POWER"/BAT1 "$SYS_POWER"/BAT2; do
+        [ -f "$d/capacity" ] && { bat_dir="$d"; break; }
+    done
+    [ -z "$bat_dir" ] && exit 0
+    pct=$(cat "$bat_dir/capacity" 2>/dev/null)
+    status=$(cat "$bat_dir/status" 2>/dev/null)
+    case "$status" in
+        Charging|Full|"Not charging") charging=1 ;;
+    esac
+else
+    exit 0
+fi
+[ -z "$pct" ] && exit 0
 
 # Honor visibility mode before doing any further work.
 case "$SHOW_WHEN" in

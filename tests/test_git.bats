@@ -63,6 +63,23 @@ run_git() {
     [[ "$output" == *"main±"* ]]
 }
 
+@test "git-skip-untracked=on ignores untracked files" {
+    echo "untracked" >"$REPO_DIR/file"
+    export MOCK_OPT_useful_git_skip_untracked=on
+    run_git
+    [[ "$output" != *"main*"* ]]
+    [[ "$output" == *"main"* ]]
+}
+
+@test "git-skip-untracked=on still flags staged changes as dirty" {
+    git -C "$REPO_DIR" commit --allow-empty -q -m "second" 2>/dev/null
+    echo "tracked" >"$REPO_DIR/tracked"
+    git -C "$REPO_DIR" add tracked
+    export MOCK_OPT_useful_git_skip_untracked=on
+    run_git
+    [[ "$output" == *"main*"* ]]
+}
+
 @test "segment disabled → empty even in a dirty repo" {
     echo "x" >"$REPO_DIR/x"
     export MOCK_OPT_useful_git_enabled=off

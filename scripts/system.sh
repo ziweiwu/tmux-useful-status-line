@@ -8,7 +8,18 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/helpers.sh"
 
 segment_enabled "system" || exit 0
-is_darwin || exit 0
+
+# OS-specific data sources. macOS uses sysctl/memory_pressure/df; Linux uses
+# /proc and `free`. Tests inject paths via TMUX_USEFUL_PROC / PATH stubs.
+PROC_DIR="${TMUX_USEFUL_PROC:-/proc}"
+
+if is_darwin; then
+    :
+elif is_linux; then
+    :
+else
+    exit 0
+fi
 
 CACHE_FILE="$(useful_cache_dir)/system"
 cache_check "$CACHE_FILE" 5 && exit 0
@@ -46,9 +57,14 @@ should_show_healthy() {
 
 out=""
 
-load1=$(sysctl -n vm.loadavg | awk '{print $2}')
-ncpu=$(sysctl -n hw.ncpu)
-load_pct=$(awk -v l="$load1" -v n="$ncpu" 'BEGIN { printf "%d", (l/n)*100 }')
+if is_darwin; then
+    load1=$(sysctl -n vm.loadavg | awk '{print $2}')
+    ncpu=$(sysctl -n hw.ncpu)
+else
+    load1=$(cut -d' ' -f1 "$PROC_DIR/loadavg" 2>/dev/null)
+    ncpu=$(nproc 2>/dev/null || grep -c '^processor' "$PROC_DIR/cpuinfo" 2>/dev/null || echo 1)
+fi
+load_pct=$(awk -v l="${load1:-0}" -v n="${ncpu:-1}" 'BEGIN { printf "%d", (l/n)*100 }')
 # Crit warnings get a leading "!" so users with deuteranopia/protanopia can
 # distinguish warn (yellow→mustard) from crit (red→mustard) without color.
 # Healthy values render in dim when an "always" mode is selected.
@@ -60,8 +76,17 @@ elif should_show_healthy load; then
     out+=" #[fg=$DIM]$ICON_LOAD $load1"
 fi
 
-mem_free=$(memory_pressure | awk '/System-wide memory free percentage/ {gsub("%",""); print $5}')
-mem=$(( 100 - ${mem_free:-0} ))
+if is_darwin; then
+    mem_free=$(memory_pressure | awk '/System-wide memory free percentage/ {gsub("%",""); print $5}')
+    mem=$(( 100 - ${mem_free:-0} ))
+else
+    # Linux: prefer the available column when present (free since procps 3.3.10).
+    mem=$(free 2>/dev/null | awk '/^Mem:/ {
+        if (NF >= 7) printf "%d", ($2 - $7)/$2 * 100;
+        else         printf "%d", $3/$2 * 100;
+    }')
+    mem="${mem:-0}"
+fi
 if [ "$mem" -ge "$MEM_CRIT" ]; then
     out+=" #[fg=$CRIT]!$ICON_MEM ${mem}%"
 elif [ "$mem" -ge "$MEM_WARN" ]; then

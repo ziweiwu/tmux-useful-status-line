@@ -42,8 +42,7 @@ teardown() {
 @test "cache_check returns 1 when stale" {
     file="$TMUX_USEFUL_CACHE_DIR/stale"
     echo "old" >"$file"
-    # Backdate the file by 100 seconds.
-    touch -t "$(date -v-100S +%Y%m%d%H%M.%S)" "$file"
+    touch_ago "$file" 100
     run cache_check "$file" 5
     [ "$status" -eq 1 ]
 }

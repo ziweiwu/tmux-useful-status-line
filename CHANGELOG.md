@@ -6,6 +6,21 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Linux support** for `system` and `battery` segments. macOS-specific data
+  sources (`sysctl`, `memory_pressure`, `pmset`) are still used on Darwin;
+  Linux uses `/proc/loadavg`, `nproc`/`/proc/cpuinfo`, `free`, and
+  `/sys/class/power_supply/BAT*/{capacity,status}`. The `spotify` segment
+  remains macOS-only and exits cleanly on Linux.
+- `@useful-git-skip-untracked on` option for monorepos — skips the untracked-
+  file scan in `git status` (which can take seconds on large repos), trading
+  accuracy for speed.
+- GitHub Actions CI now runs the test matrix on both `macos-latest` and
+  `ubuntu-latest`. 98 bats tests across both.
+- Issue templates (`bug_report.md`, `feature_request.md`) and PR template
+  under `.github/`.
+
 ## [0.1.0] — 2026-05-02
 
 First tagged release. Eight rounds of UX/security/correctness review.

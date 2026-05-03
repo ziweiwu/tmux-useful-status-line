@@ -23,3 +23,19 @@ teardown_test_env() {
 strip_format() {
     sed -E 's/#\[[^]]*\]//g'
 }
+
+# Portable "touch this file to N seconds ago" — BSD `touch -t` and `date -v`
+# differ from GNU. This helper hides the difference for tests.
+touch_ago() {
+    local file="$1" seconds_ago="$2"
+    local target_epoch=$(( $(date +%s) - seconds_ago ))
+    if date -r 0 +%Y >/dev/null 2>&1; then
+        # BSD date: -r EPOCH formats; -j -f for parsing. Use BSD touch -t.
+        local stamp
+        stamp=$(date -r "$target_epoch" +%Y%m%d%H%M.%S)
+        touch -t "$stamp" "$file"
+    else
+        # GNU date and touch: -d accepts "@EPOCH"; touch -d accepts ISO-ish.
+        touch -d "@$target_epoch" "$file"
+    fi
+}

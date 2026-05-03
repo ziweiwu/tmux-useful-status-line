@@ -21,10 +21,14 @@ file_mtime() {
     stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
 }
 
-# OS guard. macOS-only segments call this and bail cleanly if not Darwin.
-is_darwin() {
-    [ "$(uname -s 2>/dev/null)" = "Darwin" ]
+# OS detection. Tests can override with TMUX_USEFUL_OS_OVERRIDE to exercise
+# Linux code paths on a macOS CI runner.
+useful_os() {
+    printf "%s" "${TMUX_USEFUL_OS_OVERRIDE:-$(uname -s 2>/dev/null)}"
 }
+
+is_darwin() { [ "$(useful_os)" = "Darwin" ]; }
+is_linux()  { [ "$(useful_os)" = "Linux" ]; }
 
 get_tmux_option() {
     local option="$1"
