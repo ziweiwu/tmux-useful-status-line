@@ -11,6 +11,10 @@ setup_test_env() {
     export PATH="$STUBS_DIR:$PATH"
     # tmux env var so tmux stub doesn't error if scripts run any extra checks.
     export TMUX="${TMUX:-/tmp/tmux-fake}"
+    # Default to the Darwin code path so the bulk of the suite runs identically
+    # on macOS and Linux CI runners. Tests that exercise the Linux path
+    # (test_linux.bats) explicitly override this back to Linux.
+    export TMUX_USEFUL_OS_OVERRIDE="${TMUX_USEFUL_OS_OVERRIDE:-Darwin}"
     # Clear any MOCK_* leftover from a prior test in same shell.
     while IFS= read -r v; do unset "$v"; done < <(env | awk -F= '/^MOCK_/ {print $1}')
 }
