@@ -101,8 +101,17 @@ else
     cpu_value="${load_pct}%"
 fi
 
+# Per-metric crit prefix (default "!" for color-blind clarity). Set to
+# "none" / "off" / "false" to suppress when color alone is enough.
+LOAD_CRIT_PREFIX=$(get_tmux_option "@useful-load-crit-prefix" "!")
+MEM_CRIT_PREFIX=$(get_tmux_option "@useful-mem-crit-prefix" "!")
+DISK_CRIT_PREFIX=$(get_tmux_option "@useful-disk-crit-prefix" "!")
+case "$LOAD_CRIT_PREFIX" in none|off|false|0|no) LOAD_CRIT_PREFIX="" ;; esac
+case "$MEM_CRIT_PREFIX"  in none|off|false|0|no) MEM_CRIT_PREFIX=""  ;; esac
+case "$DISK_CRIT_PREFIX" in none|off|false|0|no) DISK_CRIT_PREFIX="" ;; esac
+
 if [ "$load_pct" -ge "$LOAD_CRIT" ]; then
-    out+=" #[fg=$CRIT]!$ICON_LOAD $cpu_value"
+    out+=" #[fg=$CRIT]${LOAD_CRIT_PREFIX}$ICON_LOAD $cpu_value"
 elif [ "$load_pct" -ge "$LOAD_WARN" ]; then
     out+=" #[fg=$WARN]$ICON_LOAD $cpu_value"
 elif should_show_healthy load; then
@@ -121,7 +130,7 @@ else
     mem="${mem:-0}"
 fi
 if [ "$mem" -ge "$MEM_CRIT" ]; then
-    out+=" #[fg=$CRIT]!$ICON_MEM ${mem}%"
+    out+=" #[fg=$CRIT]${MEM_CRIT_PREFIX}$ICON_MEM ${mem}%"
 elif [ "$mem" -ge "$MEM_WARN" ]; then
     out+=" #[fg=$WARN]$ICON_MEM ${mem}%"
 elif should_show_healthy mem; then
@@ -130,7 +139,7 @@ fi
 
 disk=$(df -h / | awk 'NR==2 {gsub("%",""); print $5}')
 if [ "$disk" -ge "$DISK_CRIT" ]; then
-    out+=" #[fg=$CRIT]!$ICON_DISK ${disk}%"
+    out+=" #[fg=$CRIT]${DISK_CRIT_PREFIX}$ICON_DISK ${disk}%"
 elif [ "$disk" -ge "$DISK_WARN" ]; then
     out+=" #[fg=$WARN]$ICON_DISK ${disk}%"
 elif should_show_healthy disk; then
