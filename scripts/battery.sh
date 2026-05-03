@@ -7,6 +7,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/helpers.sh"
 
 segment_enabled "battery" || exit 0
+is_darwin || exit 0
 
 CACHE_FILE="$(useful_cache_dir)/battery"
 cache_check "$CACHE_FILE" 10 && exit 0

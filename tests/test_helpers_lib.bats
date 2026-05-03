@@ -83,6 +83,29 @@ teardown() {
     done
 }
 
+@test "file_mtime returns mtime of an existing file" {
+    file="$TMUX_USEFUL_CACHE_DIR/test_mtime"
+    touch "$file"
+    run file_mtime "$file"
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    [ "$output" -gt 0 ]
+}
+
+@test "file_mtime returns nothing for missing file" {
+    run file_mtime "$TMUX_USEFUL_CACHE_DIR/nonexistent"
+    [ "$output" = "" ]
+}
+
+@test "is_darwin returns 0 on macOS" {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        run is_darwin
+        [ "$status" -eq 0 ]
+    else
+        skip "not on macOS"
+    fi
+}
+
 @test "useful_cache_dir respects @useful-cache-dir option" {
     export MOCK_OPT_useful_cache_dir="/tmp/explicit-override"
     mkdir -p /tmp/explicit-override

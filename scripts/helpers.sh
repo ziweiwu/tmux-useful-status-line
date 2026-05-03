@@ -1,6 +1,31 @@
 #!/usr/bin/env bash
 # Shared helpers for tmux-useful-status-line scripts.
 
+# Force a UTF-8 locale so bash's ${var:offset:length} slices on character
+# boundaries instead of bytes. Without this, CJK/RTL track names get cut
+# mid-byte during the Spotify slide, producing mojibake.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf8*) ;;
+    *)
+        if locale -a 2>/dev/null | grep -qi '^C\.UTF-8$'; then
+            export LC_ALL=C.UTF-8
+        elif locale -a 2>/dev/null | grep -qi '^en_US\.UTF-8$'; then
+            export LC_ALL=en_US.UTF-8
+        fi
+        ;;
+esac
+
+# Portable file-mtime in seconds. BSD/macOS uses `stat -f %m`, GNU uses
+# `stat -c %Y`. Try BSD first (we're macOS-first); fall back to GNU.
+file_mtime() {
+    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+}
+
+# OS guard. macOS-only segments call this and bail cleanly if not Darwin.
+is_darwin() {
+    [ "$(uname -s 2>/dev/null)" = "Darwin" ]
+}
+
 get_tmux_option() {
     local option="$1"
     local default_value="$2"
@@ -19,8 +44,10 @@ cache_check() {
     local file="$1"
     local max_age="$2"
     [ -f "$file" ] || return 1
-    local age
-    age=$(( $(date +%s) - $(stat -f %m "$file") ))
+    local mtime age
+    mtime=$(file_mtime "$file")
+    [ -z "$mtime" ] && return 1
+    age=$(( $(date +%s) - mtime ))
     [ "$age" -lt "$max_age" ] || return 1
     cat "$file"
     return 0

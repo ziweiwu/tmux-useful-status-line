@@ -22,13 +22,20 @@ CACHE_FILE="$(useful_cache_dir)/weather-${cache_key}"
 now=$(date +%s)
 needs_refresh=1
 if [ -f "$CACHE_FILE" ] && [ -s "$CACHE_FILE" ]; then
-    cache_age=$(( now - $(stat -f %m "$CACHE_FILE") ))
+    cache_age=$(( now - $(file_mtime "$CACHE_FILE") ))
     [ "$cache_age" -lt "$REFRESH_SEC" ] && needs_refresh=0
 fi
 
 if [ "$needs_refresh" -eq 1 ]; then
-    # URL-encode spaces in location.
-    loc_enc="${LOCATION// /%20}"
+    # Encode URL-breaking chars in the user-controlled location. wttr.in
+    # accepts raw UTF-8 in the path, so we don't need full %XX encoding —
+    # just escape the chars that change URL semantics (#, ?, &, space).
+    loc_enc="$LOCATION"
+    loc_enc="${loc_enc//\%/%25}"   # must come first
+    loc_enc="${loc_enc//\#/%23}"
+    loc_enc="${loc_enc//\?/%3F}"
+    loc_enc="${loc_enc//&/%26}"
+    loc_enc="${loc_enc// /%20}"
     fresh=$(curl -s --max-time 5 "wttr.in/${loc_enc}?format=${FORMAT}" 2>/dev/null \
         | tr -d '+' | sed 's/  */ /g')
     if [ -n "$fresh" ] && ! echo "$fresh" | grep -qiE 'unknown|error|sorry|not found|^[[:space:]]*$'; then
@@ -38,7 +45,7 @@ fi
 
 [ -f "$CACHE_FILE" ] && [ -s "$CACHE_FILE" ] || exit 0
 
-cache_age=$(( now - $(stat -f %m "$CACHE_FILE") ))
+cache_age=$(( now - $(file_mtime "$CACHE_FILE") ))
 text=$(cat "$CACHE_FILE")
 # Weather is metadata, not status — render in dim by default so it doesn't
 # compete with status colors. Stale (>1hr) data prepends a "~" — a font-

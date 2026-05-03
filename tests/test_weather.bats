@@ -85,6 +85,18 @@ run_weather() {
     [[ "$output" != *"~Fresh"* ]]
 }
 
+@test "URL-breaking chars in location are encoded" {
+    # We can't intercept the curl URL directly with the simple stub, but
+    # we *can* verify the script doesn't crash when special chars appear
+    # and that the cache key is stable for a given location.
+    export MOCK_OPT_useful_weather_location="Foo? & #Bar"
+    export MOCK_CURL_OUTPUT="🌧 6°C"
+    run_weather
+    [[ "$output" == *"6°C"* ]]
+    # Verify a cache file was actually written (i.e., script didn't error out).
+    ls "$TMUX_USEFUL_CACHE_DIR"/weather-* >/dev/null
+}
+
 @test "configurable stale threshold respected (~ flips on)" {
     export MOCK_OPT_useful_weather_stale=1
     export MOCK_CURL_OUTPUT="☀️ Test"

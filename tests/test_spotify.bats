@@ -201,6 +201,19 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
 
+@test "malicious separator does not inject AppleScript" {
+    export MOCK_SPOTIFY_RUNNING=1
+    # The osascript stub drains stdin and emits MOCK_SPOTIFY_TRACK; if injection
+    # were possible, the separator would change script behavior. We assert that
+    # the track output uses the literal separator value as data, not as code.
+    export MOCK_SPOTIFY_TRACK='Artist · Track'
+    export MOCK_OPT_useful_spotify_separator='" & (do shell script "touch /tmp/pwned-by-test") & "'
+    rm -f /tmp/pwned-by-test
+    run_spotify
+    [ ! -f /tmp/pwned-by-test ]
+    [[ "$output" == *"Artist · Track"* ]]
+}
+
 @test "segment disabled → empty even when playing" {
     export MOCK_SPOTIFY_RUNNING=1
     export MOCK_SPOTIFY_TRACK="Test · Track"

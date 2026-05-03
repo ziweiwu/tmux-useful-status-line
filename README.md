@@ -22,14 +22,16 @@ This plugin inverts it: routine numbers are hidden, color is reserved for state,
 # 1. If you don't have TPM (the tmux plugin manager) yet:
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 
-# 2. Install this plugin via TPM (add to ~/.tmux.conf):
-echo "set -g @plugin 'tmux-plugins/tpm'"             >> ~/.tmux.conf
-echo "set -g @plugin 'ziweiwu/tmux-useful-status-line'" >> ~/.tmux.conf
-echo "set -g @useful-default-layout on"              >> ~/.tmux.conf
-echo "run '~/.tmux/plugins/tpm/tpm'"                 >> ~/.tmux.conf
+# 2. Add the following lines to ~/.tmux.conf (open the file in your editor;
+#    using `echo >>` here would duplicate them on re-run):
+#
+#    set -g @plugin 'tmux-plugins/tpm'
+#    set -g @plugin 'ziweiwu/tmux-useful-status-line'
+#    set -g @useful-default-layout on
+#    run '~/.tmux/plugins/tpm/tpm'
 
 # 3. Reload tmux + fetch the plugin:
-tmux source ~/.tmux.conf
+tmux source-file ~/.tmux.conf
 # Press: prefix + I
 ```
 

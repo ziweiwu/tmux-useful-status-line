@@ -9,6 +9,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/helpers.sh"
 
 segment_enabled "spotify" || exit 0
+is_darwin || exit 0
 
 CACHE_DIR_BASE="$(useful_cache_dir)"
 TRACK_CACHE="$CACHE_DIR_BASE/spotify-track"
@@ -38,21 +39,29 @@ now="${TMUX_USEFUL_NOW:-$(date +%s)}"
 track=""
 need_fetch=1
 if [ -f "$TRACK_CACHE" ]; then
-    track_cache_age=$(( now - $(stat -f %m "$TRACK_CACHE") ))
+    track_cache_age=$(( now - $(file_mtime "$TRACK_CACHE") ))
     if [ "$track_cache_age" -lt 5 ]; then
         track=$(cat "$TRACK_CACHE")
         need_fetch=0
     fi
 fi
+unset track_cache_age
 
 if [ "$need_fetch" -eq 1 ]; then
     if pgrep -x Spotify >/dev/null 2>&1; then
-        track=$(osascript 2>/dev/null <<EOF
-tell application "Spotify"
-    if player state is playing then
-        return (artist of current track) & "${SEPARATOR}" & (name of current track)
-    end if
-end tell
+        # Pass SEPARATOR as an argument (treated as data) instead of
+        # interpolating into the AppleScript source — prevents injection
+        # if the user's @useful-spotify-separator contains AppleScript
+        # syntax like `" & (do shell script "...") & "`.
+        track=$(osascript - "$SEPARATOR" 2>/dev/null <<'EOF'
+on run argv
+    set sep to item 1 of argv
+    tell application "Spotify"
+        if player state is playing then
+            return (artist of current track) & sep & (name of current track)
+        end if
+    end tell
+end run
 EOF
 )
     fi
