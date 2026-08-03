@@ -16,9 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # bash is not incidental: macOS ships bash 3.2, where `set -e` does not
+      # abort a shell function on a failed non-final command. bats test bodies
+      # are functions, so under 3.2 every assertion that isn't the last line of
+      # a test silently passes. Installing bash 5 (which `env bash` then picks
+      # up from the Homebrew prefix) makes the macOS job fail like the Linux one.
       - name: Install bats and shellcheck (macOS)
         if: runner.os == 'macOS'
-        run: brew install bats-core shellcheck
+        run: brew install bats-core shellcheck bash
 
       - name: Install bats and shellcheck (Linux)
         if: runner.os == 'Linux'

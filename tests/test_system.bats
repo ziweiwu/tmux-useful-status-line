@@ -87,7 +87,7 @@ run_system() {
     export MOCK_MEM_FREE=20    # 80% used
     export MOCK_DISK_PCT=85
     run_system
-    [[ "$output" == *"7.0"* ]]
+    [[ "$output" == *"87%"* ]]   # 7.0/8 = 87.5 → truncated to 87
     [[ "$output" == *"80%"* ]]
     [[ "$output" == *"85%"* ]]
     [[ "$output" == *"#[fg=default]"* ]]
