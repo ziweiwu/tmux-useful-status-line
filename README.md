@@ -62,6 +62,59 @@ To disable a segment without editing your `status-right`:
 set -g @useful-spotify-enabled  off    # also: -system, -weather, -battery, -git, -pane
 ```
 
+`#{useful_git}` works in `status-left` too — pairing it with `#{b:pane_current_path}` gives you
+"where am I / what branch" in one anchor. See the recipe below.
+
+## Real-world example
+
+The author's daily-driver config, tuned for running several coding agents in parallel.
+Catppuccin Mocha, CPU as a per-core fill bar, thresholds raised because a build box
+sitting at 90% CPU is normal, not news.
+
+```tmux
+set -g status-interval 30
+set -g status-style "bg=#1e1e2e,fg=#cdd6f4"   # Catppuccin Mocha base
+set -g status-left-length  80
+set -g status-right-length 200
+
+set -g @useful-theme "catppuccin-mocha"
+
+# This machine is busy by design — warn only when load matches core count,
+# crit at 1.5x. The stock 70/100 cried wolf during every build.
+set -g @useful-system-show-when   "all-always"
+set -g @useful-cpu-style          "bar"
+set -g @useful-load-warn          100
+set -g @useful-load-crit          150
+set -g @useful-load-crit-prefix   "none"   # red bar is loud enough without "!"
+
+set -g @useful-weather-format "%c+%C+%t++💧%h++💨%w"
+
+# Left: session · cwd (~ at $HOME) · branch.
+set -g status-left "#[fg=#74c7ec,bold] #S #[fg=#6c7086,nobold]│#[fg=default] #{?#{==:#{pane_current_path},#{HOME}},~,#{b:pane_current_path}}#{useful_git} "
+
+# Right: modal cue, then situational, then health, then ambient, then clock.
+set -g status-right "#{prefix_highlight}#{useful_pane}#{useful_spotify}#{useful_system}#{useful_weather}#{useful_battery} #[fg=#74c7ec]%H:%M #[fg=#6c7086]%Z #[default]"
+
+# Window list: inactive dim, active sapphire, hairline separator.
+setw -g allow-rename off                     # keep OSC titles out of the bar
+setw -g automatic-rename-format      "#{pane_current_command}"
+setw -g window-status-format         "#[fg=#6c7086] #I:#W#{?window_zoomed_flag,Z,}#{?window_bell_flag,#,} "
+setw -g window-status-current-format "#[fg=#74c7ec,bold] #I:#W#{?window_zoomed_flag,Z,} #[default]"
+setw -g window-status-separator      "#[fg=#313244]│"
+```
+
+Two tmux settings that pair well with `#{useful_pane}` when you keep agents in
+background windows — the pane border says *what* each agent is doing, and the bell
+flag lights up when a background one finishes:
+
+```tmux
+set -g pane-border-status top
+set -g pane-border-format " #{?pane_active,#[fg=#74c7ec#,bold],#[fg=#6c7086]}#{pane_title} "
+setw -g monitor-bell on
+set  -g bell-action  other
+set  -g visual-bell  off
+```
+
 ## Configuration
 
 All options are `set -g @useful-...`. Defaults shown.
@@ -109,7 +162,10 @@ set -g @useful-batt-warn       40       # below: warn color (when discharging)
 set -g @useful-batt-crit       20       # below: crit color + "!" prefix
 set -g @useful-batt-show-when  "always" # always | discharging-or-low | low-only
 set -g @useful-batt-icons-ascii off     # "on" → [####] etc., for non-Nerd-Font terminals
+set -g @useful-batt-full-pct   95       # at or above: treated as full (full glyph)
 ```
+
+Individual glyphs: `@useful-batt-icon-full` / `-high` / `-mid` / `-low` / `-empty` / `-charging`.
 
 ### Spotify
 
@@ -117,6 +173,8 @@ set -g @useful-batt-icons-ascii off     # "on" → [####] etc., for non-Nerd-Fon
 set -g @useful-spotify-max-len   30
 set -g @useful-spotify-separator " · "
 set -g @useful-spotify-scroll    "on"   # slides through long titles once on track change
+set -g @useful-spotify-scroll-dwell    2   # seconds held at the start before sliding
+set -g @useful-spotify-scroll-duration 8   # seconds the slide runs before settling
 ```
 
 `REDUCED_MOTION=1` or `TMUX_USEFUL_REDUCED_MOTION=1` in your env forces scroll off.
@@ -126,6 +184,8 @@ set -g @useful-spotify-scroll    "on"   # slides through long titles once on tra
 ```tmux
 set -g @useful-weather-location ""       # "" = wttr.in geo-IP. e.g. "Toronto", "London,UK", "94103"
 set -g @useful-weather-format   "%c+%t"  # condition + temp. Verbose: "%c+%C+%t++💧%h++💨%w"
+set -g @useful-weather-refresh  900      # seconds between wttr.in fetches
+set -g @useful-weather-stale    3600     # seconds before cached data gets a "~" prefix
 ```
 
 ### Git
@@ -133,13 +193,21 @@ set -g @useful-weather-format   "%c+%t"  # condition + temp. Verbose: "%c+%C+%t+
 ```tmux
 set -g @useful-git-skip-untracked "off"  # "on" speeds up dirty check in monorepos
 set -g @useful-git-dirty-mark     "*"
+set -g @useful-git-max-branch-len 24     # longer branches truncate with "…"
 ```
+
+Detached HEAD shows the short SHA as `@a1b2c3d`.
 
 ### Pane
 
 ```tmux
-set -g @useful-pane-hide "zsh bash sh fish dash tmux"   # commands to suppress (boring shells)
+set -g @useful-pane-hide    "zsh bash sh fish dash tmux"   # commands to suppress (boring shells)
+set -g @useful-pane-max-len 16                             # longer names truncate with "…"
+set -g @useful-pane-icon    ""                            # prefix glyph
 ```
+
+Bare version strings (Claude Code reports its version as `pane_current_command`, e.g. `2.1.126`)
+are suppressed automatically.
 
 ### Cache directory
 
