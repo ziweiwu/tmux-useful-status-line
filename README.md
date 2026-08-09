@@ -251,6 +251,18 @@ make check    # shellcheck + 120 bats tests
 
 CI runs the matrix on macOS + Ubuntu for every push. See [AGENTS.md](AGENTS.md) for the conventions.
 
+## Sponsor
+
+This plugin is maintained by one person, in evenings, around a full-time job —
+and it is MIT licensed for good.
+
+If it has been quietly sitting in your status bar for months,
+[sponsorship](https://github.com/sponsors/ziweiwu) is what keeps it maintained
+against new tmux releases. One-time is as welcome as monthly.
+
+**Companies:** the $100/month tier includes priority response on issues you file
+and your logo here. Invoiced sponsorships available.
+
 ## License
 
 MIT
