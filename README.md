@@ -51,6 +51,12 @@ set -g @useful-default-layout on
 - macOS or Linux (system + battery work on both; spotify is macOS-only)
 - `curl` for the weather segment (skip otherwise)
 
+Configuration is read in a single tmux round-trip using `#{@user-option}`
+format expansion. If your tmux is too old to expand those, the plugin detects
+it at startup and falls back to reading each option individually — the same
+settings, just a few more subprocesses per refresh. Nothing silently reverts
+to defaults.
+
 ## Custom layout
 
 If you'd rather hand-author the bar, skip `@useful-default-layout` and write your own:

@@ -168,6 +168,10 @@ teardown() {
 }
 
 @test "segments run against one shared config snapshot" {
+    # One option set means useful_config_load's capability check is answered by
+    # the batch itself, so the whole refresh is a single tmux round-trip. With
+    # nothing set it deliberately spends one extra call; see test_config.bats.
+    export MOCK_OPT_useful_mem_warn=42
     calls="$TMUX_USEFUL_CACHE_DIR/calls"
     : >"$calls"
     stub="$TMUX_USEFUL_CACHE_DIR/bin"

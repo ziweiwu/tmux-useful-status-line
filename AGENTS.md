@@ -21,7 +21,12 @@ prompt or waybar:
 - **Config** — `get_tmux_option`. One `display-message -p` snapshot at
   `helpers.sh` source time populates `USEFUL_OPT_*`; every later lookup is a
   variable read. Taken in the main shell deliberately, so `$(color_ok)`-style
-  command substitutions inherit it instead of each forking tmux.
+  command substitutions inherit it instead of each forking tmux. The snapshot
+  is capability-checked, not version-gated: if tmux returns the `#{@...}`
+  tokens verbatim, or returns nothing while `show-options -g` proves options
+  exist, the batch is refused and lookups go per-option. Keep both guards if
+  you touch `useful_config_load` — they are what lets us support tmux versions
+  whose `#{@user-option}` support we cannot confirm.
 - **Pane context** — `useful_pane_path` / `useful_pane_command`, from the same
   snapshot.
 - **Rendering** — segments always emit tmux markup; it is the internal wire

@@ -49,6 +49,13 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
   lasts milliseconds. Options not in the manifest still resolve via a
   per-option read, and a tmux that will not answer falls back to the old
   path, so behaviour is unchanged when a server is detached.
+- The batched config now verifies that tmux actually expands
+  `#{@user-option}` instead of assuming a minimum version. A tmux that echoes
+  the token back verbatim (which would have put the literal string
+  `#{@useful-mem-crit}` into a numeric comparison) or expands it to nothing
+  (which would have silently ignored every setting) is detected, and lookups
+  fall back to per-option reads. The check is free when any `@useful-*` option
+  is set, and costs one extra call when none are.
 - The auto light/dark appearance cache moved from `$TMPDIR/tmux-useful-appearance`
   into the per-UID cache directory. On Linux hosts with a shared `/tmp`, the
   first user to write that file owned it and every other user's write failed

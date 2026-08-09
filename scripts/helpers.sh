@@ -155,6 +155,14 @@ useful_config_load() {
         *) return 0 ;;
     esac
 
+    # Guard 1: a tmux too old to expand #{@user-option} may echo the token
+    # back verbatim. That is the dangerous shape — "@useful-mem-crit" would
+    # become the literal string "#{@useful-mem-crit}", and the numeric
+    # comparisons in system.sh would fail on it. Refuse the whole batch.
+    case "$out" in
+        *'#{@'*) return 0 ;;
+    esac
+
     # Split on the separator. Word splitting on a non-whitespace IFS preserves
     # empty fields, which is what makes "option is unset" round-trip.
     case "$-" in *f*) had_noglob=1 ;; esac
@@ -166,14 +174,30 @@ useful_config_load() {
     IFS="$oldifs"
     [ "$had_noglob" -eq 0 ] && set +f
 
+    local any_set=0
     for name in $USEFUL_OPT_MANIFEST; do
         var="USEFUL_OPT_${name#@}"
         var="${var//-/_}"
         eval "$var=\"\${fields[\$i]}\""
+        # `if` rather than `&&`: a bare `&&` leaves the loop's exit status at 1
+        # whenever the last option is empty, which aborts the caller under
+        # `set -e` — and an empty last option is the common case.
+        if eval "[ -n \"\$$var\" ]"; then any_set=1; fi
         i=$(( i + 1 ))
     done
     USEFUL_PANE_PATH="${fields[$i]}"
     USEFUL_PANE_COMMAND="${fields[$(( i + 1 ))]}"
+
+    # Guard 2: the other way #{@user-option} can fail is by expanding to
+    # nothing, which is indistinguishable from "the user configured nothing"
+    # — and would silently ignore every @useful-* setting. If the batch came
+    # back completely empty, one listing call settles it. This costs a second
+    # fork only for users who have set no options at all, where the answer is
+    # the same either way.
+    if [ "$any_set" -eq 0 ] && tmux show-options -g 2>/dev/null | grep -q '^@useful-'; then
+        return 0
+    fi
+
     useful_config_batch_ok=1
 }
 

@@ -51,6 +51,11 @@ teardown() {
 }
 
 @test "the whole config is fetched in exactly one tmux call" {
+    # With at least one option set, the capability check in useful_config_load
+    # is satisfied by the batch itself and costs nothing extra. (The
+    # nothing-is-set case deliberately spends a second call; see the
+    # capability-guard tests at the bottom of this file.)
+    export MOCK_OPT_useful_mem_warn=42
     calls="$TMUX_USEFUL_CACHE_DIR/tmux-calls"
     : >"$calls"
     stub="$TMUX_USEFUL_CACHE_DIR/bin"
@@ -75,7 +80,9 @@ teardown() {
     # One batch display-message. segment_enabled is out-of-manifest by name
     # construction but registered, so it must not add a call.
     display_calls=$(grep -c 'display-message' "$calls" || true)
-    show_calls=$(grep -c 'show-option' "$calls" || true)
+    # `show-option ` with the trailing space: `show-options -g` is a different
+    # command and must not be counted as a per-option read.
+    show_calls=$(grep -c 'show-option ' "$calls" || true)
     [ "$display_calls" -eq 1 ] || { echo "display-message calls: $display_calls" >&2; cat "$calls" >&2; return 1; }
     [ "$show_calls" -eq 0 ]    || { echo "show-option calls: $show_calls" >&2; cat "$calls" >&2; return 1; }
 }
@@ -193,4 +200,85 @@ teardown() {
         [ "$before" = "$after" ] && echo SAME || echo "DIFFERENT: [$before] -> [$after]"
     ' _ "$SCRIPTS_DIR"
     [ "$output" = "SAME" ]
+}
+
+# ------------------------------------------- old-tmux capability guards
+#
+# The batch relies on tmux expanding #{@user-option}. We could not establish
+# from tmux's CHANGES which release introduced that, so the code verifies the
+# capability rather than assuming a version. Both ways it can fail must end up
+# CORRECT (falling back to per-option reads), not merely non-crashing.
+
+@test "a tmux that echoes #{@option} back verbatim is refused" {
+    export MOCK_TMUX_LITERAL_USER_FORMATS=1
+    export MOCK_OPT_useful_mem_warn=42
+    useful_config_reset
+    [ "$useful_config_batch_ok" = "0" ]
+    # The point of the guard: the option still resolves to its real value.
+    run get_tmux_option "@useful-mem-warn" "75"
+    [ "$output" = "42" ]
+}
+
+@test "a literal #{@ token never reaches a numeric comparison" {
+    # Without the guard, system.sh would compare a percentage against the
+    # string "#{@useful-mem-crit}" and error out.
+    export MOCK_TMUX_LITERAL_USER_FORMATS=1
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=20     # 80% used -> warn
+    export MOCK_DISK_PCT=10
+    run "$SCRIPTS_DIR/system.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *'#{@'* ]]
+    [[ "$output" == *"80%"* ]]
+}
+
+@test "a tmux that expands #{@option} to nothing is refused when options exist" {
+    export MOCK_TMUX_EMPTY_USER_FORMATS=1
+    export MOCK_OPT_useful_mem_warn=42
+    useful_config_reset
+    [ "$useful_config_batch_ok" = "0" ]
+    run get_tmux_option "@useful-mem-warn" "75"
+    [ "$output" = "42" ]
+}
+
+@test "an all-empty batch is trusted when no options are actually set" {
+    # The common fresh-install case must stay on the fast path.
+    while IFS= read -r v; do unset "$v"; done < <(env | awk -F= '/^MOCK_OPT_/ {print $1}')
+    useful_config_reset
+    [ "$useful_config_batch_ok" = "1" ]
+    run get_tmux_option "@useful-mem-warn" "75"
+    [ "$output" = "75" ]
+}
+
+@test "the capability check costs a second call only when nothing is set" {
+    calls="$TMUX_USEFUL_CACHE_DIR/cap-calls"
+    stub="$TMUX_USEFUL_CACHE_DIR/capbin"
+    mkdir -p "$stub"
+    { echo '#!/usr/bin/env bash'
+      echo "echo \"\$1 \$2\" >>\"$calls\""
+      echo "exec \"$STUBS_DIR/tmux\" \"\$@\""
+    } >"$stub/tmux"
+    chmod +x "$stub/tmux"
+
+    : >"$calls"
+    MOCK_OPT_useful_mem_warn=42 PATH="$stub:$PATH" \
+        run bash -c 'source "$1/helpers.sh"; get_tmux_option @useful-mem-warn 75 >/dev/null' _ "$SCRIPTS_DIR"
+    [ "$(wc -l <"$calls" | tr -d ' ')" -eq 1 ]
+
+    : >"$calls"
+    PATH="$stub:$PATH" \
+        run bash -c 'source "$1/helpers.sh"; get_tmux_option @useful-mem-warn 75 >/dev/null' _ "$SCRIPTS_DIR"
+    [ "$(wc -l <"$calls" | tr -d ' ')" -eq 2 ]
+}
+
+@test "an option whose value contains #{@ falls back rather than corrupting" {
+    # A user really can set an icon to the literal text "#{@x}". Guard 1 cannot
+    # tell that apart from an old tmux, so it takes the safe branch: slower,
+    # still correct.
+    export MOCK_OPT_useful_pane_icon='#{@x}'
+    useful_config_reset
+    [ "$useful_config_batch_ok" = "0" ]
+    run get_tmux_option "@useful-pane-icon" "DEFAULT"
+    [ "$output" = '#{@x}' ]
 }

@@ -12,6 +12,14 @@ lookup() {
     local tok="$1" var
     case "$tok" in
         @*)
+            # Simulate a tmux too old to expand #{@user-option}. Two shapes:
+            # echo the token back verbatim, or expand it to nothing.
+            if [ -n "${MOCK_TMUX_LITERAL_USER_FORMATS:-}" ]; then
+                _LOOKUP="#{$tok}"; return
+            fi
+            if [ -n "${MOCK_TMUX_EMPTY_USER_FORMATS:-}" ]; then
+                _LOOKUP=""; return
+            fi
             var="MOCK_OPT_$(printf "%s" "$tok" | tr -d '@' | tr '-' '_')"
             eval "_LOOKUP=\"\${$var:-}\""
             ;;
@@ -43,6 +51,21 @@ expand_format() {
     done
     printf "%s" "$out"
 }
+
+# tmux show-options -g — helpers.sh uses this only to answer "are any
+# @useful-* options set at all?", never to parse values.
+if [ "$1" = "show-options" ] && [ "$2" = "-g" ]; then
+    while IFS= read -r line; do
+        case "$line" in
+            MOCK_OPT_*)
+                name="${line%%=*}"; value="${line#*=}"
+                name="${name#MOCK_OPT_}"
+                printf '@%s %s\n' "${name//_/-}" "$value"
+                ;;
+        esac
+    done < <(env)
+    exit 0
+fi
 
 if [ "$1" = "show-option" ] && [ "$2" = "-gqv" ] && [ -n "$3" ]; then
     opt="$3"
