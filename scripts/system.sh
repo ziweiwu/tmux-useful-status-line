@@ -4,10 +4,16 @@
 # macOS only.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded so bin/useful-status can source helpers once and then source all
+# six segments without each re-running the config snapshot.
 # shellcheck source=helpers.sh
-source "$DIR/helpers.sh"
+[ -n "${USEFUL_HELPERS_LOADED:-}" ] || source "$DIR/helpers.sh"
 
-segment_enabled "system" || exit 0
+# The body lives in a function so the six segments can share one process.
+# Deliberately not re-indented: it keeps this diff reviewable and leaves
+# column-0 heredoc terminators intact.
+useful_segment_system() {
+segment_enabled "system" || return 0
 
 # OS-specific data sources. macOS uses sysctl/memory_pressure/df; Linux uses
 # /proc and `free`. Tests inject paths via TMUX_USEFUL_PROC / PATH stubs.
@@ -18,11 +24,11 @@ if is_darwin; then
 elif is_linux; then
     :
 else
-    exit 0
+    return 0
 fi
 
 CACHE_FILE="$(useful_cache_dir)/system"
-cache_check "$CACHE_FILE" 5 && exit 0
+cache_check "$CACHE_FILE" 5 && return 0
 
 WARN=$(color_warn)
 CRIT=$(color_crit)
@@ -137,7 +143,16 @@ elif should_show_healthy mem; then
     out+=" #[fg=$DIM]$ICON_MEM ${mem}%"
 fi
 
-disk=$(df -h / | awk 'NR==2 {gsub("%",""); print $5}')
+# On macOS, df's Capacity column for / describes the sealed read-only APFS
+# system snapshot — 12Gi of a 926Gi disk reads as 2%, and never moves, so a
+# disk warning could never fire. Total minus available is the real figure.
+# Linux's Use% is meaningful (it excludes root-reserved blocks), so it stays.
+if is_darwin; then
+    disk=$(df -k / | awk 'NR==2 { if ($2 > 0) printf "%d", ($2 - $4) / $2 * 100; else printf "0" }')
+else
+    disk=$(df -h / | awk 'NR==2 {gsub("%",""); print $5}')
+fi
+disk="${disk:-0}"
 if [ "$disk" -ge "$DISK_CRIT" ]; then
     out+=" #[fg=$CRIT]${DISK_CRIT_PREFIX}$ICON_DISK ${disk}%"
 elif [ "$disk" -ge "$DISK_WARN" ]; then
@@ -149,3 +164,9 @@ fi
 [ -n "$out" ] && out+="#[fg=default]"
 
 printf "%s" "$out" | tee "$CACHE_FILE"
+}
+
+# tmux calls this script directly via #(...); the driver sources it instead.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    useful_segment_system
+fi

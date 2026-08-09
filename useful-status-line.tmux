@@ -3,14 +3,21 @@
 # Replaces #{useful_*} placeholders in status-left / status-right with
 # real shell-out calls to scripts/*.sh, and (optionally) seeds a default
 # layout for first-run users.
+#
+# #{useful_all} maps to bin/useful-status, which renders every segment from a
+# single process and a single config snapshot. Prefer it over listing the
+# per-segment placeholders: six #() calls cost six bash startups per refresh.
+# For a subset, write the call out by hand:
+#   set -g status-right "#(~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --segments=system,battery)"
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Defensive: tarball/zip downloads of the repo lose the executable bit.
 # git clones preserve it, so this is a no-op in normal TPM use.
-chmod +x "$CURRENT_DIR/scripts/"*.sh 2>/dev/null
+chmod +x "$CURRENT_DIR/scripts/"*.sh "$CURRENT_DIR/bin/useful-status" 2>/dev/null
 
 placeholders=(
+    "\#{useful_all}"
     "\#{useful_spotify}"
     "\#{useful_system}"
     "\#{useful_weather}"
@@ -20,6 +27,7 @@ placeholders=(
 )
 
 replacements=(
+    "#($CURRENT_DIR/bin/useful-status)"
     "#($CURRENT_DIR/scripts/spotify.sh)"
     "#($CURRENT_DIR/scripts/system.sh)"
     "#($CURRENT_DIR/scripts/weather.sh)"

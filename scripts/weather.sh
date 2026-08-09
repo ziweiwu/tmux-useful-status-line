@@ -3,10 +3,16 @@
 # Configurable location; empty string falls back to wttr.in's geo-IP lookup.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded so bin/useful-status can source helpers once and then source all
+# six segments without each re-running the config snapshot.
 # shellcheck source=helpers.sh
-source "$DIR/helpers.sh"
+[ -n "${USEFUL_HELPERS_LOADED:-}" ] || source "$DIR/helpers.sh"
 
-segment_enabled "weather" || exit 0
+# The body lives in a function so the six segments can share one process.
+# Deliberately not re-indented: it keeps this diff reviewable and leaves
+# column-0 heredoc terminators intact.
+useful_segment_weather() {
+segment_enabled "weather" || return 0
 
 REFRESH_SEC=$(get_tmux_option "@useful-weather-refresh" 900)
 STALE_SEC=$(get_tmux_option "@useful-weather-stale" 3600)
@@ -43,7 +49,7 @@ if [ "$needs_refresh" -eq 1 ]; then
     fi
 fi
 
-[ -f "$CACHE_FILE" ] && [ -s "$CACHE_FILE" ] || exit 0
+[ -f "$CACHE_FILE" ] && [ -s "$CACHE_FILE" ] || return 0
 
 cache_age=$(( now - $(file_mtime "$CACHE_FILE") ))
 text=$(cat "$CACHE_FILE")
@@ -56,4 +62,10 @@ if [ "$cache_age" -gt "$STALE_SEC" ]; then
     printf " #[fg=%s]~%s#[fg=default]" "$DIM" "$text"
 else
     printf " #[fg=%s]%s#[fg=default]" "$DIM" "$text"
+fi
+}
+
+# tmux calls this script directly via #(...); the driver sources it instead.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    useful_segment_weather
 fi

@@ -3,13 +3,19 @@
 # macOS only (uses pmset).
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded so bin/useful-status can source helpers once and then source all
+# six segments without each re-running the config snapshot.
 # shellcheck source=helpers.sh
-source "$DIR/helpers.sh"
+[ -n "${USEFUL_HELPERS_LOADED:-}" ] || source "$DIR/helpers.sh"
 
-segment_enabled "battery" || exit 0
+# The body lives in a function so the six segments can share one process.
+# Deliberately not re-indented: it keeps this diff reviewable and leaves
+# column-0 heredoc terminators intact.
+useful_segment_battery() {
+segment_enabled "battery" || return 0
 
 CACHE_FILE="$(useful_cache_dir)/battery"
-cache_check "$CACHE_FILE" 10 && exit 0
+cache_check "$CACHE_FILE" 10 && return 0
 
 # Tests can override the Linux power-supply path via this env var.
 SYS_POWER="${TMUX_USEFUL_SYS_POWER:-/sys/class/power_supply}"
@@ -28,7 +34,7 @@ pct=""
 charging=0
 if is_darwin; then
     batt=$(pmset -g batt 2>/dev/null)
-    [ -z "$batt" ] && exit 0
+    [ -z "$batt" ] && return 0
     pct=$(echo "$batt" | grep -oE '[0-9]{1,3}%' | head -1 | tr -d '%')
     echo "$batt" | grep -q "AC Power" && charging=1
 elif is_linux; then
@@ -37,16 +43,16 @@ elif is_linux; then
     for d in "$SYS_POWER"/BAT0 "$SYS_POWER"/BAT1 "$SYS_POWER"/BAT2; do
         [ -f "$d/capacity" ] && { bat_dir="$d"; break; }
     done
-    [ -z "$bat_dir" ] && exit 0
+    [ -z "$bat_dir" ] && return 0
     pct=$(cat "$bat_dir/capacity" 2>/dev/null)
     status=$(cat "$bat_dir/status" 2>/dev/null)
     case "$status" in
         Charging|Full|"Not charging") charging=1 ;;
     esac
 else
-    exit 0
+    return 0
 fi
-[ -z "$pct" ] && exit 0
+[ -z "$pct" ] && return 0
 
 # Honor visibility mode before doing any further work.
 case "$SHOW_WHEN" in
@@ -55,14 +61,14 @@ case "$SHOW_WHEN" in
     low-only)
         if [ "$charging" -eq 1 ] || [ "$pct" -ge "$BATT_WARN" ]; then
             : > "$CACHE_FILE"
-            exit 0
+            return 0
         fi
         ;;
     discharging-or-low|*)
         # Hide when fully charged AND on AC — the most boring state.
         if [ "$charging" -eq 1 ] && [ "$pct" -ge "$FULL_PCT" ]; then
             : > "$CACHE_FILE"
-            exit 0
+            return 0
         fi
         ;;
 esac
@@ -109,3 +115,9 @@ if [ "$charging" -eq 0 ] && [ "$pct" -lt "$BATT_CRIT" ]; then
 fi
 
 printf " #[fg=%s]%s%s %s%%#[fg=default]" "$color" "$prefix" "$glyph" "$pct" | tee "$CACHE_FILE"
+}
+
+# tmux calls this script directly via #(...); the driver sources it instead.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    useful_segment_battery
+fi

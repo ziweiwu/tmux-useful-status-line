@@ -48,6 +48,27 @@ EOF
     grep -q "suffix" "$TMUX_TEST_OUT"
 }
 
+@test "useful_all placeholder maps to the single-process driver" {
+    write_tmux_stub
+    export MOCK_STATUS_RIGHT="pre #{useful_all} post"
+    run "$PROJECT_ROOT/useful-status-line.tmux"
+    [ "$status" -eq 0 ]
+    grep -q "bin/useful-status" "$TMUX_TEST_OUT"
+    grep -q "pre" "$TMUX_TEST_OUT"
+    grep -q "post" "$TMUX_TEST_OUT"
+    # It must not also drag in the per-segment scripts.
+    ! grep -q "scripts/system.sh" "$TMUX_TEST_OUT"
+}
+
+@test "useful_all and per-segment placeholders can coexist" {
+    write_tmux_stub
+    export MOCK_STATUS_RIGHT="#{useful_all}"
+    export MOCK_STATUS_LEFT="#{useful_git}"
+    run "$PROJECT_ROOT/useful-status-line.tmux"
+    grep -q "bin/useful-status" "$TMUX_TEST_OUT"
+    grep -q "git.sh" "$TMUX_TEST_OUT"
+}
+
 @test "all four placeholders are replaced" {
     write_tmux_stub
     export MOCK_STATUS_RIGHT="#{useful_spotify}#{useful_system}#{useful_weather}#{useful_battery}"

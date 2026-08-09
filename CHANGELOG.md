@@ -8,6 +8,58 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ### Added
 
+- **`bin/useful-status` — a single-process driver** and a `#{useful_all}`
+  placeholder that maps to it. Renders every segment from one bash process and
+  one tmux round-trip instead of six `#()` shell-outs, with byte-identical
+  output. Measured on macOS, warm cache, four segments: 31 tmux subprocesses
+  and ~245 ms CPU per refresh before, 1 subprocess and ~115 ms after. The
+  per-segment placeholders are unchanged and still supported.
+- **Rendering for hosts that aren't tmux**: `--render=ansi|plain|json`
+  translates the internal tmux markup into SGR escapes, bare text, or a
+  waybar/i3blocks JSON object. JSON reports a severity per segment plus a
+  worst-of `class`, so bars can style by state. Enables use from a shell
+  prompt, starship, waybar, sketchybar, or plain `watch`.
+- `@useful-render` and `@useful-segments` options, and `--render`,
+  `--segments`, `--separator`, `--list` flags on the driver.
+
+### Fixed
+
+- **The disk segment never fired on macOS.** It read `df`'s Capacity column
+  for `/`, which on APFS describes the sealed read-only *system snapshot* —
+  12 GiB of a 926 GiB disk, reported as 2%, and effectively frozen. A 31%-full
+  disk read as 2%, so `@useful-disk-warn` could never trigger. Darwin now
+  computes total-minus-available; Linux keeps `Use%`, which is meaningful there.
+- **Layout budgets are now measured in terminal cells, not characters.**
+  `@useful-git-max-branch-len`, `@useful-pane-max-len` and
+  `@useful-spotify-max-len` counted characters, so a 24-character CJK branch
+  name (40 cells) passed the check untouched and pushed the rest of the bar off
+  screen. Emoji in the weather format compounded it. For ASCII the behaviour is
+  unchanged; for wide text the budget is now honoured.
+- **The Spotify slide traversed character overflow, not cell overflow.** A
+  Japanese title of 31 characters / 53 cells overflowed a 30-cell budget by one
+  character, so the animation nudged a single glyph while the bar ran 23 cells
+  over. It now slides across the real overflow and stays inside the budget.
+
+### Changed
+
+- **Config is fetched in one tmux call instead of one per option.** All ~57
+  `@useful-*` options are expanded in a single `display-message -p` format
+  string and snapshotted per process. Options are read once per script run
+  rather than live per lookup — an invisible change in practice, since a run
+  lasts milliseconds. Options not in the manifest still resolve via a
+  per-option read, and a tmux that will not answer falls back to the old
+  path, so behaviour is unchanged when a server is detached.
+- The auto light/dark appearance cache moved from `$TMPDIR/tmux-useful-appearance`
+  into the per-UID cache directory. On Linux hosts with a shared `/tmp`, the
+  first user to write that file owned it and every other user's write failed
+  silently, making them re-probe the system appearance on every refresh.
+- `git` and `pane` no longer spend their own `tmux display -p` call on pane
+  context; it rides along in the config snapshot.
+- `bin/useful-status` gained CLI manners: it renders plain when stdout is not a
+  terminal or `NO_COLOR` is set, and grew `--version` / `-V`. Inside tmux it
+  still emits tmux markup, because tmux captures `#()` through a pipe and a
+  naive isatty check would break the status line.
+
 - **`#{useful_pane}` segment** — active-pane command indicator (vim, claude,
   ssh, …) modeled on lualine's filename section. Hidden for default shells
   and pure-version-number commands. Adds situational awareness about what

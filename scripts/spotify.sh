@@ -5,11 +5,17 @@
 # becomes ambient/distracting.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded so bin/useful-status can source helpers once and then source all
+# six segments without each re-running the config snapshot.
 # shellcheck source=helpers.sh
-source "$DIR/helpers.sh"
+[ -n "${USEFUL_HELPERS_LOADED:-}" ] || source "$DIR/helpers.sh"
 
-segment_enabled "spotify" || exit 0
-is_darwin || exit 0
+# The body lives in a function so the six segments can share one process.
+# Deliberately not re-indented: it keeps this diff reviewable and leaves
+# column-0 heredoc terminators intact.
+useful_segment_spotify() {
+segment_enabled "spotify" || return 0
+is_darwin || return 0
 
 CACHE_DIR_BASE="$(useful_cache_dir)"
 TRACK_CACHE="$CACHE_DIR_BASE/spotify-track"
@@ -71,8 +77,15 @@ fi
 if [ -z "$track" ]; then
     # Preserve STATE_FILE so resuming the same track later doesn't replay the
     # full slide animation. Just emit nothing for this tick.
-    exit 0
+    return 0
 fi
+
+# Everything below budgets in terminal CELLS, not characters. A Japanese title
+# of 31 characters occupies 53 cells: measured in characters it looks like it
+# overflows a 30-cell budget by one, so the slide would nudge a single glyph
+# while the bar ran 23 cells over.
+useful_display_width "$track"
+track_cells=$USEFUL_WIDTH
 
 # ----------------------------------------------------------- detect track change
 prev_track=""
@@ -89,7 +102,7 @@ if [ "$track" != "$prev_track" ]; then
     # is enabled. Otherwise the slide is meaningless and motion is wasted.
     if [ -z "${TMUX_USEFUL_NO_WATCHDOG:-}" ] \
        && [ "$SCROLL_ENABLED" = "on" ] \
-       && [ "${#track}" -gt "$MAX_LEN" ]; then
+       && [ "$track_cells" -gt "$MAX_LEN" ]; then
         # Kill any leftover watchdog from a previous (now-stale) cycle so we
         # don't accumulate refreshers when tracks change rapidly.
         if [ -f "$WATCHDOG_PID_FILE" ]; then
@@ -107,7 +120,7 @@ if [ "$track" != "$prev_track" ]; then
             window_end=$(( now + DWELL + SLIDE_DURATION + DWELL + 1 ))
             while [ "$(date +%s)" -lt "$window_end" ]; do
                 sleep 1
-                tmux refresh-client -S 2>/dev/null
+                useful_request_redraw
             done
         ) </dev/null >/dev/null 2>&1 &
         new_pid=$!
@@ -117,36 +130,51 @@ if [ "$track" != "$prev_track" ]; then
 fi
 
 # --------------------------------------------------- compute display window
-len="${#track}"
 elapsed=$(( now - cycle_start ))
 [ "$SLIDE_DURATION" -lt 1 ] && SLIDE_DURATION=1
 slide_end=$(( DWELL + SLIDE_DURATION ))
 end_dwell=$(( DWELL + SLIDE_DURATION + DWELL ))
 
-if [ "$len" -le "$MAX_LEN" ]; then
+# The travel distance reserves one cell for the leading ellipsis, so the final
+# frame lands flush against the end of the title instead of one cell short.
+overflow=$(( track_cells - MAX_LEN + 1 ))
+[ "$overflow" -lt 0 ] && overflow=0
+
+# head window: content + trailing ellipsis, both inside MAX_LEN cells.
+window_head() { useful_window "$track" 0 $(( MAX_LEN - 1 )); display="${USEFUL_WINDOW}…"; }
+# tail window: leading ellipsis + the last MAX_LEN-1 cells.
+window_tail() { useful_window "$track" "$overflow" $(( MAX_LEN - 1 )); display="…$USEFUL_WINDOW"; }
+
+if [ "$track_cells" -le "$MAX_LEN" ]; then
     display="$track"
 elif [ "$SCROLL_ENABLED" != "on" ]; then
-    display="${track:0:$((MAX_LEN - 1))}…"
+    window_head
 elif [ "$elapsed" -lt "$DWELL" ]; then
-    display="${track:0:$((MAX_LEN - 1))}…"
+    window_head
 elif [ "$elapsed" -lt "$slide_end" ]; then
-    overflow=$(( len - MAX_LEN ))
     progress=$(( elapsed - DWELL ))
     offset=$(( progress * overflow / SLIDE_DURATION ))
     [ "$offset" -lt 0 ] && offset=0
     [ "$offset" -gt "$overflow" ] && offset="$overflow"
 
     if [ "$offset" -eq 0 ]; then
-        display="${track:0:$((MAX_LEN - 1))}…"
+        window_head
     elif [ "$offset" -ge "$overflow" ]; then
-        display="…${track: -$((MAX_LEN - 1))}"
+        window_tail
     else
-        display="…${track:$((offset + 1)):$((MAX_LEN - 2))}…"
+        useful_window "$track" "$offset" $(( MAX_LEN - 2 ))
+        display="…${USEFUL_WINDOW}…"
     fi
 elif [ "$elapsed" -lt "$end_dwell" ]; then
-    display="…${track: -$((MAX_LEN - 1))}"
+    window_tail
 else
-    display="${track:0:$((MAX_LEN - 1))}…"
+    window_head
 fi
 
 printf " #[fg=%s]%s %s#[fg=default]" "$ACCENT" "$ICON" "$display"
+}
+
+# tmux calls this script directly via #(...); the driver sources it instead.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    useful_segment_spotify
+fi

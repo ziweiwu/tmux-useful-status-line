@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
-# Mimic two-line `df -h /` output. system.sh reads NR==2, column 5.
-cat <<EOF
-Filesystem    Size  Used Avail Capacity iused      ifree %iused  Mounted on
-/dev/disk    1.0T  500G  500G  ${MOCK_DISK_PCT:-50}%   100  100  50% /
+# Mimic `df` for system.sh.
+#   df -h /  -> Capacity column, read by the Linux path.
+#   df -k /  -> 1K blocks, read by the Darwin path, which computes
+#               (total - available) because Capacity describes the sealed
+#               APFS system snapshot rather than your data.
+pct="${MOCK_DISK_PCT:-50}"
+if [ "$1" = "-k" ]; then
+    total=1073741824
+    avail=$(( total * (100 - pct) / 100 ))
+    used=$(( total - avail ))
+    # Capacity is deliberately pinned at the misleading 2% so a test that
+    # accidentally reads column 5 here fails loudly.
+    cat <<EOF
+Filesystem   1024-blocks       Used      Avail Capacity iused ifree %iused  Mounted on
+/dev/disk     $total  $used  $avail     2%   100  100  50% /
 EOF
+else
+    cat <<EOF
+Filesystem    Size  Used Avail Capacity iused      ifree %iused  Mounted on
+/dev/disk    1.0T  500G  500G  ${pct}%   100  100  50% /
+EOF
+fi

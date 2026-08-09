@@ -4,21 +4,28 @@
 # Cached 3s — git status is fast but not free.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded so bin/useful-status can source helpers once and then source all
+# six segments without each re-running the config snapshot.
 # shellcheck source=helpers.sh
-source "$DIR/helpers.sh"
+[ -n "${USEFUL_HELPERS_LOADED:-}" ] || source "$DIR/helpers.sh"
 
-segment_enabled "git" || exit 0
+# The body lives in a function so the six segments can share one process.
+# Deliberately not re-indented: it keeps this diff reviewable and leaves
+# column-0 heredoc terminators intact.
+useful_segment_git() {
+segment_enabled "git" || return 0
 
-# tmux's #{pane_current_path} is what the active pane considers cwd. We pass
-# it via the environment when called from #(...). Fall back to the script's
-# own cwd otherwise (e.g., ad-hoc invocation from the shell).
-cwd="${TMUX_PANE_CURRENT_PATH:-$(tmux display -p '#{pane_current_path}' 2>/dev/null)}"
+# The active pane's cwd. useful_pane_path reads it from the config snapshot
+# helpers.sh already took, so this costs no extra tmux round-trip; it honors
+# TMUX_PANE_CURRENT_PATH when a caller injects one. Falls back to the script's
+# own cwd outside tmux (e.g., ad-hoc invocation from the shell).
+cwd="$(useful_pane_path)"
 [ -z "$cwd" ] && cwd="$PWD"
 
 # Cache key: hash the cwd so each repo has its own short-TTL cache.
 cwd_hash=$(printf "%s" "$cwd" | shasum 2>/dev/null | cut -c1-8)
 CACHE_FILE="$(useful_cache_dir)/git-${cwd_hash}"
-cache_check "$CACHE_FILE" 3 && exit 0
+cache_check "$CACHE_FILE" 3 && return 0
 
 DIM=$(color_dim)
 WARN=$(color_warn)
@@ -31,7 +38,7 @@ DIRTY_MARK=$(get_tmux_option "@useful-git-dirty-mark" "*")
 top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$top" ]; then
     : >"$CACHE_FILE"
-    exit 0
+    return 0
 fi
 
 branch=$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null)
@@ -40,13 +47,14 @@ if [ -z "$branch" ]; then
     branch=$(git -C "$top" rev-parse --short HEAD 2>/dev/null)
     [ -n "$branch" ] && branch="@${branch}"
 fi
-[ -z "$branch" ] && { : >"$CACHE_FILE"; exit 0; }
+[ -z "$branch" ] && { : >"$CACHE_FILE"; return 0; }
 
-# Truncate long branch names so a feature/very-long-name doesn't blow out the bar.
+# Truncate long branch names so a feature/very-long-name doesn't blow out the
+# bar. The budget is in terminal CELLS, not characters: a 24-character CJK
+# branch name occupies 40 cells, and ${#branch} would happily pass it through.
 MAX_BRANCH_LEN=$(get_tmux_option "@useful-git-max-branch-len" 24)
-if [ "${#branch}" -gt "$MAX_BRANCH_LEN" ]; then
-    branch="${branch:0:$((MAX_BRANCH_LEN - 1))}…"
-fi
+useful_truncate "$branch" "$MAX_BRANCH_LEN"
+branch="$USEFUL_TRUNC"
 
 # Dirty: any uncommitted changes. In monorepos, scanning untracked files can
 # be slow (seconds); the @useful-git-skip-untracked option trades accuracy
@@ -69,3 +77,9 @@ else
 fi
 
 printf " #[fg=%s]%s %s%s#[fg=default]" "$color" "$ICON" "$branch" "$dirty" | tee "$CACHE_FILE"
+}
+
+# tmux calls this script directly via #(...); the driver sources it instead.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    useful_segment_git
+fi

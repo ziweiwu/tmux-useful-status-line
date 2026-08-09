@@ -4,6 +4,12 @@
 
 Most status-line plugins shout about every metric all the time — CPU, RAM, disk, battery, weather — each in its own colored block, all competing for attention. Nothing pops because everything pops. This plugin inverts that: routine values stay hidden, color is reserved for state changes, and the bar is calm 95% of the time.
 
+![The status line in three states: healthy, warning, critical](assets/status-line.svg)
+
+*Rendered from real segment output — `tools/make-screenshot.sh` runs the plugin against
+the test fixtures and draws what it emits, so the picture can't drift from the code.
+Icons shown are the Nerd-Font-free variants; defaults use Nerd Font glyphs.*
+
 Six segments, each silent until they have something to say.
 
 | Placeholder | Output |
@@ -14,6 +20,7 @@ Six segments, each silent until they have something to say.
 | `#{useful_spotify}`  | Now-playing track. Empty when not playing. Long titles slide once on track change. |
 | `#{useful_git}`      | Branch + dirty mark. Empty outside a repo. Warn-color when working tree is dirty. |
 | `#{useful_pane}`     | Active pane's command (vim, claude, ssh, …). Hidden for default shells. |
+| `#{useful_all}`      | All six at once, from a single process. Cheaper than listing them individually — see [One process instead of six](#one-process-instead-of-six). |
 
 ## Install
 
@@ -64,6 +71,99 @@ set -g @useful-spotify-enabled  off    # also: -system, -weather, -battery, -git
 
 `#{useful_git}` works in `status-left` too — pairing it with `#{b:pane_current_path}` gives you
 "where am I / what branch" in one anchor. See the recipe below.
+
+## One process instead of six
+
+Each `#{useful_*}` placeholder is a separate `#()` shell-out: six bash startups
+per status refresh. `#{useful_all}` runs every segment inside one process off
+one tmux round-trip instead, and renders identical output.
+
+```tmux
+set -g status-right "#{useful_all} #[fg=#88c0d0]%H:%M #[default]"
+```
+
+Measured on macOS with a warm cache, four segments, 20 refreshes, CPU time
+(wall-clock is too noisy on a loaded machine to compare honestly):
+
+| | tmux subprocesses per refresh | CPU per refresh |
+|---|---|---|
+| Six separate `#()` placeholders | 31 | ~245 ms |
+| Same, batched config (v0.2) | 6 | ~185 ms |
+| `#{useful_all}` | 1 | ~115 ms |
+
+For a subset, or to put segments in different places, call the driver directly:
+
+```tmux
+set -g status-left  "#[fg=#88c0d0,bold] #S #(~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --segments=git) #[default]"
+set -g status-right "#(~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --segments=pane,system,battery)"
+```
+
+Two `#()` calls still beat six. The per-segment placeholders remain supported
+and unchanged.
+
+## Outside tmux
+
+The segments talk to tmux through exactly three seams — config, pane context,
+and colour markup — and all three have non-tmux fallbacks. `bin/useful-status`
+is the entry point:
+
+```sh
+bin/useful-status --render=ansi     # SGR escapes, for a shell prompt
+bin/useful-status --render=plain    # no colour
+bin/useful-status --render=json     # for waybar / i3blocks
+bin/useful-status --list            # available segment names
+bin/useful-status --version
+```
+
+It behaves like a CLI should: piping or redirecting drops colour automatically,
+`NO_COLOR` is honoured, data goes to stdout and errors to stderr, and a bad
+flag exits non-zero. An explicit `--render` always wins over both.
+
+Outside tmux it defaults to `--render=ansi`. Config resolution degrades in one
+step rather than all at once:
+
+- **A tmux server is reachable** (even from a terminal that isn't attached to
+  it): your `@useful-*` globals are read normally, so a prompt outside tmux and
+  a status line inside it stay in sync.
+- **No server is reachable**: every option falls back to its default, and the
+  `pane` segment renders empty because there is no pane to report on. Nothing
+  errors, and no tmux server is started just to answer the query.
+
+Everything else works in both cases.
+
+```sh
+# zsh right-prompt, refreshed on each prompt draw
+RPROMPT='$(~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --render=ansi --segments=system,battery)'
+
+# starship custom module
+[custom.useful]
+command = "~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --render=ansi"
+when = true
+format = "$output"
+```
+
+JSON mode reports a severity per segment plus a worst-of `class`, so bar
+consumers can style by state:
+
+```json
+{"text":"mem 95% disk 85%","class":"critical","segments":[
+  {"name":"system","text":"mem 95% disk 85%","severity":"critical"}]}
+```
+
+```jsonc
+// waybar config
+"custom/useful": {
+  "exec": "~/.tmux/plugins/tmux-useful-status-line/bin/useful-status --render=json",
+  "return-type": "json",
+  "interval": 5
+}
+```
+
+There is no separate config file: tmux options are the only configuration
+source, by design. On a host with no tmux at all you get the defaults, which
+are chosen to be reasonable unattended. If you need non-default thresholds
+there, keep a detached tmux server around (`tmux new-session -d`) with your
+`@useful-*` options set — the driver will read them.
 
 ## Real-world example
 
@@ -208,6 +308,16 @@ set -g @useful-pane-icon    ""                            # prefix glyph
 
 Bare version strings (Claude Code reports its version as `pane_current_command`, e.g. `2.1.126`)
 are suppressed automatically.
+
+### Driver
+
+```tmux
+set -g @useful-render   tmux    # tmux | ansi | plain | json (default: tmux inside tmux)
+set -g @useful-segments "git pane spotify system weather battery"   # order and membership
+```
+
+Both apply to `#{useful_all}` / `bin/useful-status`; the `--render` and
+`--segments` flags override them.
 
 ### Cache directory
 

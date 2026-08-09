@@ -6,6 +6,44 @@
 #   strip leading '@', replace '-' with '_'
 #   e.g. @useful-mem-warn -> MOCK_OPT_useful_mem_warn
 
+# Resolve a single #{...} format token into $_LOOKUP. Setting a global rather
+# than echoing keeps the batch expansion below fork-free.
+lookup() {
+    local tok="$1" var
+    case "$tok" in
+        @*)
+            var="MOCK_OPT_$(printf "%s" "$tok" | tr -d '@' | tr '-' '_')"
+            eval "_LOOKUP=\"\${$var:-}\""
+            ;;
+        pane_current_command) _LOOKUP="${MOCK_PANE_COMMAND:-zsh}" ;;
+        pane_current_path)    _LOOKUP="${MOCK_PANE_PATH:-$HOME}" ;;
+        *)                    _LOOKUP="" ;;
+    esac
+}
+
+# Expand a format string, substituting #{...} tokens and passing literals
+# (including the \037 separators and the trailing END sentinel) through.
+expand_format() {
+    local fmt="$1" out="" pre rest tok
+    while [ -n "$fmt" ]; do
+        case "$fmt" in
+            *'#{'*)
+                pre="${fmt%%#\{*}"
+                rest="${fmt#*#\{}"
+                tok="${rest%%\}*}"
+                fmt="${rest#*\}}"
+                lookup "$tok"
+                out="$out$pre$_LOOKUP"
+                ;;
+            *)
+                out="$out$fmt"
+                fmt=""
+                ;;
+        esac
+    done
+    printf "%s" "$out"
+}
+
 if [ "$1" = "show-option" ] && [ "$2" = "-gqv" ] && [ -n "$3" ]; then
     opt="$3"
     var="MOCK_OPT_$(printf "%s" "$opt" | tr -d '@' | tr '-' '_')"
@@ -13,13 +51,13 @@ if [ "$1" = "show-option" ] && [ "$2" = "-gqv" ] && [ -n "$3" ]; then
     exit 0
 fi
 
-# tmux display -p '#{format}' — used by pane.sh and git.sh.
-if [ "$1" = "display" ] && [ "$2" = "-p" ] && [ -n "$3" ]; then
-    case "$3" in
-        '#{pane_current_command}') printf '%s' "${MOCK_PANE_COMMAND:-zsh}" ;;
-        '#{pane_current_path}')    printf '%s' "${MOCK_PANE_PATH:-$HOME}" ;;
-        *) printf '' ;;
-    esac
+# tmux display[-message] -p '<format>' — used by the batched config load in
+# helpers.sh and by the per-call fallbacks in git.sh / pane.sh.
+if { [ "$1" = "display" ] || [ "$1" = "display-message" ]; } && [ "$2" = "-p" ] && [ -n "$3" ]; then
+    # MOCK_NO_TMUX_SERVER=1 simulates "no server/session answered", which is
+    # what drives helpers.sh onto its per-option fallback path.
+    [ -n "${MOCK_NO_TMUX_SERVER:-}" ] && exit 1
+    expand_format "$3"
     exit 0
 fi
 

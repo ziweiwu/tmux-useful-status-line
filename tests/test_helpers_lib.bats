@@ -21,6 +21,9 @@ teardown() {
 
 @test "get_tmux_option returns option value when set" {
     export MOCK_OPT_useful_mem_warn=42
+    # Config is snapshotted once per process (see useful_config_load), so a
+    # mock exported after setup()'s source needs an explicit re-read.
+    useful_config_reset
     run get_tmux_option "@useful-mem-warn" "75"
     [ "$status" -eq 0 ]
     [ "$output" = "42" ]
@@ -49,6 +52,7 @@ teardown() {
 
 @test "color_ok respects override" {
     export MOCK_OPT_useful_color_ok="#112233"
+    useful_config_reset
     run color_ok
     [ "$output" = "#112233" ]
 }
@@ -201,6 +205,7 @@ teardown() {
 @test "useful_cache_dir respects @useful-cache-dir option" {
     export MOCK_OPT_useful_cache_dir="/tmp/explicit-override"
     mkdir -p /tmp/explicit-override
+    useful_config_reset
     run useful_cache_dir
     [ "$output" = "/tmp/explicit-override" ]
     rmdir /tmp/explicit-override 2>/dev/null || true

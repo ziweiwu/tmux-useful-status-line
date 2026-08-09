@@ -192,3 +192,27 @@ run_system() {
     run_system
     [ "$output" = "$first" ]
 }
+
+# ---------------------------------------------------------------- disk source
+
+@test "macOS disk uses total-minus-available, not df's Capacity column" {
+    # df's Capacity for / describes the sealed read-only APFS system snapshot:
+    # it sat at 2% on a 31%-full disk, so a disk warning could never fire.
+    # The df stub pins Capacity at 2% precisely so reading it fails here.
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=80
+    export MOCK_DISK_PCT=90        # real fullness: should be CRIT
+    run_system
+    [[ "$output" == *"90%"* ]] || { echo "got [$output]" >&2; return 1; }
+    [[ "$output" != *"2%"* ]]
+}
+
+@test "macOS disk stays silent when the volume really is healthy" {
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=80
+    export MOCK_DISK_PCT=30
+    run_system
+    [ "$output" = "" ]
+}

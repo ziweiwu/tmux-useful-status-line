@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Single-process driver for the useful-status-line segments.
+#
+# tmux can call each segment script directly via #(...), but that pays a bash
+# startup and a tmux round-trip per segment. This runs all of them in one
+# process off one config snapshot, and can render for hosts that are not tmux
+# (a shell prompt, waybar, sketchybar, Zellij, plain `watch`).
+#
+#   useful-status                       # tmux markup inside tmux, ANSI outside
+#   useful-status --render=ansi         # for a shell prompt
+#   useful-status --render=plain        # no colour at all
+#   useful-status --render=json         # for waybar / i3blocks
+#   useful-status --segments=system,battery
+set -u
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)"
+
+ALL_SEGMENTS="git pane spotify system weather battery"
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../scripts/helpers.sh
+source "$SCRIPTS_DIR/helpers.sh"
+
+render=""
+segments=""
+separator=""
+
+usage() {
+    cat <<USAGE
+usage: useful-status [options]
+
+  --render=MODE      tmux | ansi | plain | json
+                     (default: @useful-render, else tmux inside tmux, else ansi)
+  --segments=LIST    comma-separated subset of: $ALL_SEGMENTS
+                     (default: @useful-segments, else all of them)
+  --separator=STR    inserted between non-empty segments (default: none —
+                     each segment already emits its own leading space)
+  --list             print the available segment names and exit
+  -V, --version      print the version and exit
+  -h, --help         this message
+
+Render defaults, in precedence order: --render, then @useful-render, then
+tmux markup when inside tmux, then plain when NO_COLOR is set or stdout is
+not a terminal, then ansi.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --render=*)    render="${1#*=}" ;;
+        --segments=*)  segments="${1#*=}" ;;
+        --separator=*) separator="${1#*=}" ;;
+        --list)        printf "%s\n" "${ALL_SEGMENTS// /$'\n'}"; exit 0 ;;
+        -V|--version)  printf "useful-status %s\n" "$USEFUL_VERSION"; exit 0 ;;
+        -h|--help)     usage; exit 0 ;;
+        *) printf "useful-status: unknown option '%s'\n\n" "$1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+# Precedence: flag, then tmux option, then context. Rendering for the wrong
+# host is the one failure mode that produces visible garbage, so default to
+# tmux markup only when we can see we are inside tmux.
+[ -z "$render" ] && render=$(get_tmux_option "@useful-render" "")
+if [ -z "$render" ]; then
+    if [ -n "${TMUX:-}" ]; then
+        # tmux captures #() through a pipe, so stdout is never a tty here.
+        # The tty check below must not get a chance to override this.
+        render="tmux"
+    elif [ -n "${NO_COLOR:-}" ]; then
+        # https://no-color.org — applies to the DEFAULT only, so an explicit
+        # --render=ansi still works for anyone who wants it.
+        render="plain"
+    elif [ ! -t 1 ]; then
+        # Piped or redirected: emit something a consumer can parse, not escapes.
+        render="plain"
+    else
+        render="ansi"
+    fi
+fi
+case "$render" in
+    tmux|ansi|plain|json) ;;
+    *) printf "useful-status: unknown render mode '%s'\n" "$render" >&2; exit 2 ;;
+esac
+
+[ -z "$segments" ] && segments=$(get_tmux_option "@useful-segments" "$ALL_SEGMENTS")
+segments="${segments//,/ }"
+
+for seg in $segments; do
+    case " $ALL_SEGMENTS " in
+        *" $seg "*) ;;
+        *) printf "useful-status: unknown segment '%s'\n" "$seg" >&2; exit 2 ;;
+    esac
+done
+
+# Source only the segments actually requested. Each file defines
+# useful_segment_<name> and, because it is sourced rather than executed, skips
+# its own standalone guard.
+for seg in $segments; do
+    # shellcheck source=/dev/null
+    source "$SCRIPTS_DIR/$seg.sh"
+done
+
+# Run each segment in a command substitution. That subshell is what isolates
+# the segments from each other: the bodies were written as scripts, so their
+# variables are globals and would otherwise collide.
+markup=""
+json_parts=""
+worst="none"
+first=1
+
+severity_rank() {
+    case "$1" in
+        critical) printf "3" ;;
+        warning)  printf "2" ;;
+        normal)   printf "1" ;;
+        *)        printf "0" ;;
+    esac
+}
+
+for seg in $segments; do
+    text=$("useful_segment_$seg")
+    [ -z "$text" ] && continue
+
+    if [ "$first" -eq 1 ]; then
+        first=0
+    else
+        markup="$markup$separator"
+    fi
+    markup="$markup$text"
+
+    if [ "$render" = "json" ]; then
+        sev=$(useful_severity "$text")
+        [ "$(severity_rank "$sev")" -gt "$(severity_rank "$worst")" ] && worst="$sev"
+        plain=$(useful_render plain "$text")
+        # Segments carry leading spaces so they concatenate cleanly in a tmux
+        # status line; that padding is noise once each is its own JSON field.
+        plain="${plain#"${plain%%[![:space:]]*}"}"
+        json_parts="$json_parts{\"name\":\"$seg\",\"text\":\"$(useful_json_escape "$plain")\",\"severity\":\"$sev\"},"
+    fi
+done
+
+if [ "$render" = "json" ]; then
+    flat=$(useful_render plain "$markup")
+    flat="${flat#"${flat%%[![:space:]]*}"}"
+    printf '{"text":"%s","class":"%s","segments":[%s]}\n' \
+        "$(useful_json_escape "$flat")" "$worst" "${json_parts%,}"
+else
+    useful_render "$render" "$markup"
+fi
