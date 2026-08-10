@@ -380,7 +380,7 @@ tmux set -gu status-right; tmux set -gu status-left; tmux source-file ~/.tmux.co
 ## Development
 
 ```sh
-make check    # shellcheck + 120 bats tests
+make check    # shellcheck + 215 bats tests
 ```
 
 CI runs the matrix on macOS + Ubuntu for every push. See [AGENTS.md](AGENTS.md) for the conventions.
