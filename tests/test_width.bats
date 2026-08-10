@@ -59,6 +59,16 @@ width_is() {
     width_is "☁️" 2
 }
 
+@test "a leading U+FE0F does not promote a glyph that is not there" {
+    # Regression: the promotion state started at "previous glyph was narrow",
+    # so a variation selector at position 0 invented an extra cell.
+    width_is "$(printf '\xef\xb8\x8f')ab" 2
+    # ...while promotion after a real narrow glyph still works.
+    width_is "☁️" 2
+    # ...and never applies after a glyph that is already wide.
+    width_is "字$(printf '\xef\xb8\x8f')" 2
+}
+
 @test "combining marks occupy no cells" {
     # "e" + U+0301 combining acute
     width_is "$(printf 'e\xcc\x81')" 1
@@ -118,6 +128,16 @@ width_is() {
                 return 1; }
         done
     done
+}
+
+@test "a budget too small for the ellipsis yields nothing, not an overflow" {
+    useful_truncate "abcdef" 0
+    [ "$USEFUL_TRUNC" = "" ]
+    useful_truncate "abcdef" 1
+    [ "$USEFUL_TRUNC" = "…" ]
+    # A 2-cell ellipsis against a 1-cell budget must also come back empty.
+    useful_truncate "abcdef" 1 "字"
+    [ "$USEFUL_TRUNC" = "" ]
 }
 
 @test "truncate never splits a multi-byte character" {

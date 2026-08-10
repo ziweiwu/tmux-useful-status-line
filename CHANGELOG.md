@@ -40,6 +40,18 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
   character, so the animation nudged a single glyph while the bar ran 23 cells
   over. It now slides across the real overflow and stays inside the budget.
 
+- Two defects in the new width layer: a `U+FE0F` at the start of a string
+  promoted a glyph that was not there (one cell too wide), and a budget too
+  small to hold the ellipsis emitted it anyway, overflowing by a cell.
+
+### Added
+
+- `@useful-warn-prefix` (default empty) puts a non-colour marker on warnings,
+  mirroring the existing `!` on criticals. It matters under
+  `@useful-system-show-when all-always`, where healthy values render too and
+  hue is otherwise the only thing separating warn from healthy. The default is
+  empty so the stock look is unchanged.
+
 ### Changed
 
 - **Config is fetched in one tmux call instead of one per option.** All ~57

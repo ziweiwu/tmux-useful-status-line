@@ -108,10 +108,16 @@ else
     color="$OK"
 fi
 
-# Crit gets a non-color "!" prefix for color-blind users.
+# Crit gets a non-color "!" prefix for color-blind users. Warn can too, via
+# @useful-warn-prefix — battery renders in every state, so without it warn and
+# ok are separated by hue alone.
+WARN_PREFIX=$(get_tmux_option "@useful-warn-prefix" "")
+case "$WARN_PREFIX" in none|off|false|0|no) WARN_PREFIX="" ;; esac
 prefix=""
 if [ "$charging" -eq 0 ] && [ "$pct" -lt "$BATT_CRIT" ]; then
     prefix="!"
+elif [ "$charging" -eq 0 ] && [ "$pct" -lt "$BATT_WARN" ]; then
+    prefix="$WARN_PREFIX"
 fi
 
 printf " #[fg=%s]%s%s %s%%#[fg=default]" "$color" "$prefix" "$glyph" "$pct" | tee "$CACHE_FILE"

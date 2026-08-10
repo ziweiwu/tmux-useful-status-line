@@ -216,3 +216,33 @@ run_system() {
     run_system
     [ "$output" = "" ]
 }
+
+@test "@useful-warn-prefix marks warnings without relying on colour" {
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=20    # 80% -> warn
+    export MOCK_DISK_PCT=85    # warn
+    export MOCK_OPT_useful_warn_prefix="~"
+    run_system
+    [ "$(printf "%s" "$output" | tr -cd '~' | wc -c)" -eq 2 ]
+}
+
+@test "warn prefix is empty by default, so the stock look is unchanged" {
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=20
+    export MOCK_DISK_PCT=85
+    run_system
+    [[ "$output" == *"#[fg=#ebcb8b]mem 80%"* ]]
+}
+
+@test "warn prefix does not leak into crit, which keeps its own marker" {
+    export MOCK_LOADAVG="{ 0.5 0.5 0.5 }"
+    export MOCK_NCPU=8
+    export MOCK_MEM_FREE=5     # 95% -> crit
+    export MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_warn_prefix="~"
+    run_system
+    [[ "$output" == *"!mem 95%"* ]]
+    [[ "$output" != *"~mem"* ]]
+}

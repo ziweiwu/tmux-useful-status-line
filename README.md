@@ -261,6 +261,24 @@ set -g @useful-mem-crit-prefix  "!"               # ditto
 set -g @useful-disk-crit-prefix "!"
 ```
 
+**Memory is the kernel's pressure figure, not Activity Monitor's.** `mem` comes
+from `memory_pressure` on macOS, which counts inactive/reclaimable pages as
+available. Activity Monitor's "Memory Used" (wired + active + compressed) reads
+roughly 10 points higher for the same instant — 69% vs 80% on the machine this
+was calibrated on. The pressure figure is the better "should I worry" signal,
+but bear the offset in mind when picking `@useful-mem-warn`. Linux uses `free`'s
+*available* column, which is the equivalent idea.
+
+**Colour-blind legibility.** Critical values are prefixed with `!` by default so
+red and yellow don't have to be told apart. Warnings have no prefix, because in
+the default silent-when-healthy mode a warning segment *appearing* is itself the
+cue. If you turn on an always-mode (below), healthy values render too and colour
+becomes the only difference — set a warning prefix as well:
+
+```tmux
+set -g @useful-warn-prefix "~"     # default: "" (none)
+```
+
 ### Battery
 
 ```tmux

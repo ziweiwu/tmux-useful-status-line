@@ -111,6 +111,7 @@ USEFUL_OPT_MANIFEST="
 @useful-weather-format
 @useful-weather-location
 @useful-weather-refresh
+@useful-warn-prefix
 @useful-weather-stale
 "
 
@@ -481,7 +482,9 @@ useful_cp_width() {
 # Sets USEFUL_WIDTH to the number of cells $1 occupies.
 useful_display_width() {
     local LC_ALL=C
-    local s="$1" n i=0 w=0 prev=1
+    # prev starts at 0, not 1: there is no glyph before the first character,
+    # so a leading U+FE0F must not promote anything.
+    local s="$1" n i=0 w=0 prev=0
     n=${#s}
     while [ "$i" -lt "$n" ]; do
         useful_utf8_decode "$s" "$i"
@@ -504,7 +507,7 @@ useful_display_width() {
 useful_window() {
     local LC_ALL=C
     local s="$1" start="$2" max="$3"
-    local n i=0 acc=0 taken=0 out="" chunk prev=1 cw
+    local n i=0 acc=0 taken=0 out="" chunk prev=0 cw
     USEFUL_WINDOW=""; USEFUL_WINDOW_CUT_HEAD=0; USEFUL_WINDOW_CUT_TAIL=0
     n=${#s}
     [ "$max" -lt 1 ] && return
@@ -537,6 +540,8 @@ useful_truncate() {
     if [ "$USEFUL_WIDTH" -le "$max" ]; then USEFUL_TRUNC="$s"; return; fi
     useful_display_width "$ell"
     ew=$USEFUL_WIDTH
+    # No room even for the marker: emit nothing rather than overflow by a cell.
+    if [ "$max" -lt "$ew" ]; then USEFUL_TRUNC=""; return; fi
     useful_window "$s" 0 $(( max - ew ))
     USEFUL_TRUNC="$USEFUL_WINDOW$ell"
 }

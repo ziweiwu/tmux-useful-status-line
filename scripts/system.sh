@@ -109,6 +109,14 @@ fi
 
 # Per-metric crit prefix (default "!" for color-blind clarity). Set to
 # "none" / "off" / "false" to suppress when color alone is enough.
+# Warn shares the crit prefix's purpose: a cue that does not depend on colour.
+# It defaults to empty because in the default "silent when healthy" mode the
+# segment appearing at all IS the cue. Under @useful-system-show-when
+# all-always / mem-and-disk-always, healthy values are rendered too, so colour
+# becomes the only thing separating warn from healthy — set this there.
+WARN_PREFIX=$(get_tmux_option "@useful-warn-prefix" "")
+case "$WARN_PREFIX" in none|off|false|0|no) WARN_PREFIX="" ;; esac
+
 LOAD_CRIT_PREFIX=$(get_tmux_option "@useful-load-crit-prefix" "!")
 MEM_CRIT_PREFIX=$(get_tmux_option "@useful-mem-crit-prefix" "!")
 DISK_CRIT_PREFIX=$(get_tmux_option "@useful-disk-crit-prefix" "!")
@@ -119,7 +127,7 @@ case "$DISK_CRIT_PREFIX" in none|off|false|0|no) DISK_CRIT_PREFIX="" ;; esac
 if [ "$load_pct" -ge "$LOAD_CRIT" ]; then
     out+=" #[fg=$CRIT]${LOAD_CRIT_PREFIX}$ICON_LOAD $cpu_value"
 elif [ "$load_pct" -ge "$LOAD_WARN" ]; then
-    out+=" #[fg=$WARN]$ICON_LOAD $cpu_value"
+    out+=" #[fg=$WARN]${WARN_PREFIX}$ICON_LOAD $cpu_value"
 elif should_show_healthy load; then
     out+=" #[fg=$DIM]$ICON_LOAD $cpu_value"
 fi
@@ -138,7 +146,7 @@ fi
 if [ "$mem" -ge "$MEM_CRIT" ]; then
     out+=" #[fg=$CRIT]${MEM_CRIT_PREFIX}$ICON_MEM ${mem}%"
 elif [ "$mem" -ge "$MEM_WARN" ]; then
-    out+=" #[fg=$WARN]$ICON_MEM ${mem}%"
+    out+=" #[fg=$WARN]${WARN_PREFIX}$ICON_MEM ${mem}%"
 elif should_show_healthy mem; then
     out+=" #[fg=$DIM]$ICON_MEM ${mem}%"
 fi
@@ -156,7 +164,7 @@ disk="${disk:-0}"
 if [ "$disk" -ge "$DISK_CRIT" ]; then
     out+=" #[fg=$CRIT]${DISK_CRIT_PREFIX}$ICON_DISK ${disk}%"
 elif [ "$disk" -ge "$DISK_WARN" ]; then
-    out+=" #[fg=$WARN]$ICON_DISK ${disk}%"
+    out+=" #[fg=$WARN]${WARN_PREFIX}$ICON_DISK ${disk}%"
 elif should_show_healthy disk; then
     out+=" #[fg=$DIM]$ICON_DISK ${disk}%"
 fi
