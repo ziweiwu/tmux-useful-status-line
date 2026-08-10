@@ -18,7 +18,7 @@ esac
 # Single source of truth for the version. Bump this when tagging a release;
 # bin/useful-status --version reports it.
 # shellcheck disable=SC2034  # read by bin/useful-status
-USEFUL_VERSION="0.2.0-dev"
+USEFUL_VERSION="0.2.0"
 
 # Portable file-mtime in seconds. BSD/macOS uses `stat -f %m`; GNU's `-f`
 # is `--file-system` mode and breaks here, so we dispatch by REAL uname,

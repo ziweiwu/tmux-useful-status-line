@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-09
+
 ### Added
 
 - **`bin/useful-status` — a single-process driver** and a `#{useful_all}`
@@ -141,5 +143,6 @@ First tagged release. Eight rounds of UX/security/correctness review.
 - Shipping as `0.x` (pre-1.0). Option names and default values may change
   in `0.x` releases — pin to a tag if you want stability.
 
-[Unreleased]: https://github.com/ziweiwu/tmux-useful-status-line/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ziweiwu/tmux-useful-status-line/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ziweiwu/tmux-useful-status-line/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ziweiwu/tmux-useful-status-line/releases/tag/v0.1.0
