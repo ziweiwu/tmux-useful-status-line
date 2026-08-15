@@ -29,6 +29,16 @@ usage() {
     cat <<USAGE
 usage: useful-status [options]
 
+Prints the status line: one line of segments, silent when the system is fine.
+
+Examples:
+  useful-status                          inside tmux — emits tmux markup
+  useful-status --render=ansi            for a shell prompt
+  useful-status --render=json            for waybar / i3blocks
+  useful-status --segments=system,git    just those two
+  watch -n2 -c useful-status --render=ansi
+
+Options:
   --render=MODE      tmux | ansi | plain | json
                      (default: @useful-render, else tmux inside tmux, else ansi)
   --segments=LIST    comma-separated subset of: $ALL_SEGMENTS
@@ -38,6 +48,9 @@ usage: useful-status [options]
   --list             print the available segment names and exit
   -V, --version      print the version and exit
   -h, --help         this message
+
+Configuration is read from tmux options (@useful-*), not the environment.
+See the README for the full list.
 
 Render defaults, in precedence order: --render, then @useful-render, then
 tmux markup when inside tmux, then plain when NO_COLOR is set or stdout is

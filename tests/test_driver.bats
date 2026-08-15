@@ -235,3 +235,23 @@ teardown() {
     run "$DRIVER" --segments=pane
     [[ "$output" == *"$(printf '\033')["* ]]
 }
+
+@test "a wedged segment does not silence the healthy segments after it" {
+    # The driver runs segments in a fixed order off one shared clock. A budget
+    # that CANCELS later calls once the clock is spent makes a healthy battery
+    # vanish because git hung — the bar goes blank for a reason that has nothing
+    # to do with the segment that disappeared, which is the exact opposite of
+    # "silent when healthy, loud when it isn't".
+    hangdir="$(mktemp -d)"
+    printf '#!/usr/bin/env bash\ntrap "" TERM\nsleep 300\n' >"$hangdir/git"
+    chmod +x "$hangdir/git"
+    export PATH="$hangdir:$PATH"
+    export MOCK_OPT_useful_timeout=1
+    export MOCK_OPT_useful_timeout_total=2
+    export MOCK_BATT_AC=0 MOCK_BATT_PCT=50
+
+    run "$PROJECT_ROOT/bin/useful-status" --render=plain --segments=git,battery
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"50%"* ]]
+    rm -rf "$hangdir"
+}

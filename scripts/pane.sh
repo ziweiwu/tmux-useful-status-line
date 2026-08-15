@@ -38,13 +38,18 @@ done
 
 # Truncate long command names so a long process name doesn't blow out the bar.
 # Budget is in terminal cells — see useful_truncate in helpers.sh.
-MAX_LEN=$(get_tmux_option "@useful-pane-max-len" 16)
+MAX_LEN=$(useful_int_option "@useful-pane-max-len" 16)
 useful_truncate "$cmd" "$MAX_LEN"
 cmd="$USEFUL_TRUNC"
 
 DIM=$(color_dim)
-ICON=$(get_tmux_option "@useful-pane-icon" "")
-printf " #[fg=%s]%s %s#[fg=default]" "$DIM" "$ICON" "$cmd"
+# An icon set to "" is a supported way to ask for no icon. Carry the separating
+# space ON the icon so the empty case collapses cleanly instead of emitting the
+# doubled leading space that "%s %s" would produce.
+ICON=$(useful_icon_option "@useful-pane-icon" "")
+# The command name comes from whatever is running in the pane — escaped, for
+# the same reason git.sh escapes a branch name.
+printf " #[fg=%s]%s%s#[fg=default]" "$DIM" "$ICON" "$(useful_escape "$cmd")"
 }
 
 # tmux calls this script directly via #(...); the driver sources it instead.

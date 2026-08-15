@@ -86,3 +86,29 @@ run_git() {
     run_git
     [ "$output" = "" ]
 }
+
+@test "a branch name containing tmux format syntax is escaped" {
+    # Branch names come from whoever authored the repo. '#' is live syntax in a
+    # tmux format string, so it is escaped as '##' on the way out.
+    repo="$(mktemp -d)"
+    git -C "$repo" init -q .
+    git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m x
+    git -C "$repo" checkout -q -b 'feat/#{pane_id}'
+    export TMUX_PANE_CURRENT_PATH="$repo"
+    run "$SCRIPTS_DIR/git.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'##{pane_id}'* ]]
+    rm -rf "$repo"
+}
+
+@test "a non-numeric max-branch-len falls back instead of blanking the segment" {
+    repo="$(mktemp -d)"
+    git -C "$repo" init -q .
+    git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m x
+    export TMUX_PANE_CURRENT_PATH="$repo"
+    export MOCK_OPT_useful_git_max_branch_len="abc"
+    run "$SCRIPTS_DIR/git.sh"
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    rm -rf "$repo"
+}

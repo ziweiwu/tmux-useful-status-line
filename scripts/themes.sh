@@ -5,14 +5,47 @@
 #
 # Theme presets — pure data. Sourced by helpers.sh after defaults are set.
 #
-# Each theme exports the five `default_color_*` tones. All dim values keep
-# WCAG AA contrast against the canonical background for that variant
-# (light themes use darker dim, dark themes use lighter dim).
+# Each theme exports the five `default_color_*` tones, reproduced from its
+# upstream palette. That fidelity is the point of naming a theme after its
+# author — and it is also why 24 of these 80 tones sit BELOW the WCAG AA
+# 4.5:1 threshold against their own canonical background. Nord's aurora red
+# measures 3.05:1; rose-pine-dawn's warm orange measures 2.05:1 on the dawn
+# background, which is worse than that theme's "everything is fine" green.
 #
-# Adding a theme: pick a name, add a case branch, set the five tones.
-# That's it — color_ok() / color_warn() / etc. read these as fallbacks.
+# `@useful-contrast aa` opts into the corrected set below. It is opt-in rather
+# than default because silently shifting a named palette is its own kind of
+# wrong. An explicit @useful-color-* always outranks both.
+#
+# Adding a theme: pick a name, add a case branch, set the five tones, and add
+# its canonical background to USEFUL_THEME_BACKGROUNDS so
+# tests/test_themes.bats can measure it.
 
-case "$(useful_resolve_theme)" in
+# Background each palette is designed against. Never used for rendering — this
+# project only ever sets a foreground — but it is the reference the contrast
+# claim above is measured against, and the test enforces it.
+# shellcheck disable=SC2034  # read by tests/test_themes.bats
+USEFUL_THEME_BACKGROUNDS="
+nord=#2e3440
+catppuccin-mocha=#1e1e2e
+catppuccin-macchiato=#24273a
+catppuccin-frappe=#303446
+catppuccin-latte=#eff1f5
+gruvbox-dark=#282828
+gruvbox-light=#fbf1c7
+everforest-dark=#2d353b
+vitesse-dark=#121212
+rose-pine=#191724
+rose-pine-dawn=#faf4ed
+tokyo-night=#1a1b26
+dracula=#282a36
+solarized-dark=#002b36
+solarized-light=#fdf6e3
+onedark=#282c34
+"
+
+useful_theme_name=$(useful_resolve_theme)
+
+case "$useful_theme_name" in
     nord|"")
         ;;  # Nord — defaults already match.
     catppuccin|catppuccin-mocha)
@@ -121,3 +154,58 @@ case "$(useful_resolve_theme)" in
         default_color_dim="#7a8290"
         ;;
 esac
+
+# ------------------------------------------------------- WCAG AA corrections
+#
+# Applied only under `set -g @useful-contrast aa`. Each replacement keeps the
+# original hue and saturation and moves lightness alone, so the tone still
+# reads as the theme's colour — just far enough from the background to clear
+# 4.5:1. Themes absent from this list already passed on every tone.
+if [ "$(get_tmux_option "@useful-contrast" "")" = "aa" ]; then
+    case "$useful_theme_name" in
+        nord|"")
+            default_color_crit="#d08b91"
+            default_color_accent="#b792b0"
+            default_color_dim="#959eab"
+            ;;
+        catppuccin-latte)
+            default_color_ok="#317b21"
+            default_color_warn="#976014"
+            default_color_dim="#696b81"
+            ;;
+        gruvbox|gruvbox-dark)
+            default_color_crit="#fb5845"
+            ;;
+        gruvbox-light)
+            default_color_ok="#746f0d"
+            default_color_warn="#956110"
+            default_color_dim="#776a60"
+            ;;
+        rose-pine-dawn)
+            default_color_warn="#9d6110"
+            default_color_crit="#ac526c"
+            default_color_accent="#7d649a"
+            default_color_dim="#6f6b89"
+            ;;
+        tokyo-night|tokyonight)
+            default_color_dim="#7c83a8"
+            ;;
+        dracula)
+            default_color_dim="#8793b1"
+            ;;
+        solarized-dark)
+            default_color_crit="#e56765"
+            default_color_accent="#dd659f"
+            ;;
+        solarized-light)
+            default_color_ok="#687700"
+            default_color_warn="#8c6a00"
+            default_color_crit="#d72724"
+            default_color_accent="#cc2d7a"
+            ;;
+        onedark|one-dark)
+            default_color_crit="#e1737b"
+            default_color_dim="#8e95a0"
+            ;;
+    esac
+fi

@@ -210,3 +210,227 @@ teardown() {
     [ "$output" = "/tmp/explicit-override" ]
     rmdir /tmp/explicit-override 2>/dev/null || true
 }
+
+# ------------------------------------------------------------- cache_check
+
+@test "a cache file dated in the future is stale, not eternally fresh" {
+    # A negative age passes any `age < max_age` test, which pinned the entry
+    # as fresh forever. Clock skew and snapshot-restored VMs both produce it.
+    cache_file="$TMUX_USEFUL_CACHE_DIR/future"
+    echo "stale content" >"$cache_file"
+    touch_ago "$cache_file" -3600     # one hour into the future
+    run cache_check "$cache_file" 10
+    [ "$status" -ne 0 ]
+}
+
+@test "a fresh cache file is still served" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/fresh"
+    echo "hello" >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -eq 0 ]
+    [ "$output" = "hello" ]
+}
+
+# -------------------------------------------------------- useful_int_option
+
+@test "a non-numeric option falls back to its default instead of erroring" {
+    export MOCK_OPT_useful_mem_warn="seventy"
+    useful_config_reset
+    # Captured directly rather than with `run`: bats folds stderr into $output,
+    # and the whole point of the diagnostic is that it is NOT on stdout.
+    out=$(useful_int_option "@useful-mem-warn" 75 2>/dev/null)
+    [ "$out" = "75" ]
+}
+
+@test "the fallback diagnostic goes to stderr, never to the status line" {
+    # tmux's #() captures stdout only. A warning on stdout would be rendered
+    # into the bar; a warning on stderr is what makes the failure diagnosable.
+    export MOCK_OPT_useful_mem_warn="seventy"
+    useful_config_reset
+    out=$(useful_int_option "@useful-mem-warn" 75 2>/dev/null)
+    [ "$out" = "75" ]
+    err=$(useful_int_option "@useful-mem-warn" 75 2>&1 >/dev/null)
+    [[ "$err" == *"@useful-mem-warn"* ]]
+}
+
+@test "values too large for a shell integer comparison are rejected" {
+    # `[ 99999999999999999999 -ge 5 ]` fails with the same opaque error this
+    # helper exists to prevent.
+    export MOCK_OPT_useful_mem_warn="99999999999999999999"
+    useful_config_reset
+    out=$(useful_int_option "@useful-mem-warn" 75 2>/dev/null)
+    [ "$out" = "75" ]
+}
+
+@test "valid numeric options pass through untouched" {
+    export MOCK_OPT_useful_mem_warn=42
+    useful_config_reset
+    out=$(useful_int_option "@useful-mem-warn" 75 2>/dev/null)
+    [ "$out" = "42" ]
+}
+
+@test "negative and empty values fall back" {
+    for v in "-1" " " "1.5" "12abc"; do
+        export MOCK_OPT_useful_mem_warn="$v"
+        useful_config_reset
+        out=$(useful_int_option "@useful-mem-warn" 75 2>/dev/null)
+        [ "$out" = "75" ] || { echo "[$v] gave $out" >&2; return 1; }
+    done
+}
+
+# ------------------------------------------------------- useful_icon_option
+
+@test "an icon carries its own separating space" {
+    icon=$(useful_icon_option "@useful-git-icon" "X")
+    [ "$icon" = "X " ]
+}
+
+@test "an icon can actually be turned off" {
+    # get_tmux_option treats "" as unset and hands back the default, so
+    # clearing an icon needs an explicit word.
+    for word in none off false no; do
+        export MOCK_OPT_useful_git_icon="$word"
+        useful_config_reset
+        icon=$(useful_icon_option "@useful-git-icon" "X")
+        [ -z "$icon" ] || { echo "[$word] left [$icon]" >&2; return 1; }
+    done
+}
+
+# ----------------------------------------------------------- useful_timeout
+
+@test "useful_timeout returns a fast command's output and status" {
+    run useful_timeout 5 printf "quick"
+    [ "$status" -eq 0 ]
+    [ "$output" = "quick" ]
+    run useful_timeout 5 sh -c "exit 7"
+    [ "$status" -eq 7 ]
+}
+
+@test "useful_timeout bounds a command that would never return" {
+    start=$(date +%s)
+    run useful_timeout 1 sh -c "sleep 30"
+    [ "$(( $(date +%s) - start ))" -lt 10 ]
+}
+
+@test "useful_timeout kills grandchildren, not just the direct child" {
+    # The grandchild is what holds the command-substitution pipe open, so
+    # signalling only the child left the caller blocked for the full runtime.
+    start=$(date +%s)
+    # `|| true`: a killed command exits non-zero, and bats runs the test body
+    # under `set -e`, so the assignment alone would abort before the assertion.
+    out=$(useful_timeout 1 sh -c "sleep 30 | cat") || true
+    [ "$(( $(date +%s) - start ))" -lt 10 ]
+    [ -z "$out" ]
+}
+
+@test "useful_timeout passes stdin through to the command" {
+    # Bash redirects an async command's stdin from /dev/null unless there is an
+    # explicit redirection — which silently ate spotify.sh's AppleScript
+    # heredoc on stock macOS, the only platform that uses the fallback path.
+    out=$(useful_timeout 5 cat <<'EOF'
+piped-in
+EOF
+)
+    [ "$out" = "piped-in" ]
+}
+
+@test "useful_timeout escalates to SIGKILL when the child ignores SIGTERM" {
+    # SIGTERM is a request. A wrapper script, or anything with a
+    # graceful-shutdown handler, can decline it — and then `wait` blocked
+    # forever on exactly the hang the timeout exists to prevent, leaking the
+    # child as an orphan on top.
+    start=$(date +%s)
+    run useful_timeout 1 bash -c 'trap "" TERM; sleep 60'
+    [ "$(( $(date +%s) - start ))" -lt 15 ]
+}
+
+@test "a whole-run budget bounds the SUM of the guarded calls, not just each one" {
+    # Ten independently-guarded sources at 3s each is 30s, however tight the
+    # per-call limit looks.
+    #
+    # The bound is deliberately not the budget itself. Once it is spent each
+    # remaining call still gets USEFUL_TIMEOUT_FLOOR plus its kill grace, so the
+    # guarantee is "budget + about a second per pending call", not "budget".
+    # Cancelling them instead would blank a healthy segment because an earlier
+    # one hung. The threshold below is that guarantee, not slack.
+    USEFUL_TIMEOUT_TOTAL=2
+    start=$(date +%s)
+    for _ in 1 2 3 4 5 6; do
+        useful_timeout 5 sh -c "sleep 10" >/dev/null 2>&1 || true
+    done
+    [ "$(( $(date +%s) - start ))" -lt 12 ]
+}
+
+@test "the whole-run budget does not interfere with fast calls" {
+    USEFUL_TIMEOUT_TOTAL=10
+    run useful_timeout 5 printf "quick"
+    [ "$output" = "quick" ]
+}
+
+# ------------------------------------------------------------ useful_escape
+
+@test "useful_escape neutralises tmux format syntax" {
+    run useful_escape '#[bg=red]x#{pane_id}'
+    [ "$output" = '##[bg=red]x##{pane_id}' ]
+}
+
+@test "useful_escape leaves text without a hash alone" {
+    run useful_escape 'feature/normal-branch'
+    [ "$output" = 'feature/normal-branch' ]
+}
+
+@test "a timeout of 0 means no limit, on both code paths" {
+    # coreutils timeout(1) reads 0 as unlimited. The watchdog used to read it
+    # as `sleep 0; kill` and shoot the command immediately, so @useful-timeout 0
+    # was an escape hatch that worked on Linux and broke on macOS.
+    out=$(useful_timeout 0 sh -c "sleep 0.4; echo alive" 2>/dev/null) || true
+    [ "$out" = "alive" ] || { echo "gave [$out]" >&2; return 1; }
+    # ...and it disables the whole-run ceiling with it, rather than swapping one
+    # bound for another.
+    USEFUL_TIMEOUT_TOTAL=1
+    out=$(useful_timeout 0 sh -c "sleep 2; echo alive" 2>/dev/null) || true
+    [ "$out" = "alive" ]
+}
+
+@test "a torn cache entry cannot bleed colour into the segments after it" {
+    # A tee killed mid-write leaves a colour run open, and tmux carries that
+    # colour through every later segment for the whole TTL.
+    cache_file="$TMUX_USEFUL_CACHE_DIR/torn"
+    printf "%s" " #[fg=#bf616a]!cpu5" >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"#[fg=default]" ]]
+}
+
+@test "a well-formed cache entry is returned byte-for-byte" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/ok"
+    printf "%s" " #[fg=#bf616a]!cpu 90%#[fg=default]" >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$output" = " #[fg=#bf616a]!cpu 90%#[fg=default]" ]
+}
+
+@test "control bytes in a corrupted cache entry never reach the terminal" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/corrupt"
+    printf 'a\rb\x1b[2Jc' >"$cache_file"
+    out=$(cache_check "$cache_file" 60)
+    case "$out" in
+        *$'\r'*|*$'\x1b'*) echo "control byte survived: [$out]" >&2; return 1 ;;
+    esac
+}
+
+@test "an absurdly long cache entry is recomputed, not pasted into the bar" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/huge"
+    printf 'x%.0s' $(seq 1 10000) >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -ne 0 ]
+}
+
+@test "an empty cache entry still counts as a hit" {
+    # Segments write an empty file to mean "nothing to show"; that must not be
+    # mistaken for a miss and recomputed every refresh.
+    cache_file="$TMUX_USEFUL_CACHE_DIR/empty"
+    : >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}

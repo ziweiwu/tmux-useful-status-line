@@ -20,7 +20,11 @@ lookup() {
             if [ -n "${MOCK_TMUX_EMPTY_USER_FORMATS:-}" ]; then
                 _LOOKUP=""; return
             fi
-            var="MOCK_OPT_$(printf "%s" "$tok" | tr -d '@' | tr '-' '_')"
+            # Parameter expansion, not `printf | tr | tr`: this runs once per
+            # manifest option per batched call, so two forks here became ~124
+            # forks on every single config snapshot the suite takes.
+            var="${tok#@}"
+            var="MOCK_OPT_${var//-/_}"
             eval "_LOOKUP=\"\${$var:-}\""
             ;;
         pane_current_command) _LOOKUP="${MOCK_PANE_COMMAND:-zsh}" ;;

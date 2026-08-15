@@ -82,11 +82,51 @@ run_battery() {
     [[ "$output" == *"!"* ]]
 }
 
-@test "30% on battery (warn but not crit) → no '!' prefix" {
+@test "healthy, warn and crit are all distinguishable without colour" {
+    # Battery renders in every state under the default show-when, so healthy vs
+    # warn used to differ by hue alone — the glyph tiers are a charge gauge
+    # (90/60/30/15), not a severity scale, so a warn 39% and a healthy 45% draw
+    # the SAME mid glyph. The prefixes carry the severity: "" / "~" / "!".
+    export MOCK_BATT_AC=0
+    export MOCK_BATT_PCT=80
+    run_battery
+    [[ "$output" != *"~"* ]]
+    [[ "$output" != *"!"* ]]
+
+    export MOCK_BATT_PCT=30
+    rm -f "$TMUX_USEFUL_CACHE_DIR/battery"
+    run_battery
+    [[ "$output" == *"~"* ]]
+    [[ "$output" != *"!"* ]]
+
+    export MOCK_BATT_PCT=5
+    rm -f "$TMUX_USEFUL_CACHE_DIR/battery"
+    run_battery
+    [[ "$output" == *"!"* ]]
+    [[ "$output" != *"~"* ]]
+}
+
+@test "crit is '!' here exactly as it is in the system segment beside it" {
+    # A status line is read as one line. Letting crit vary per segment made
+    # `!mem 95%` sit beside `!!batt 15%` and claim the battery was worse when
+    # both were critical — false to the one audience that has only the prefix.
+    export MOCK_BATT_AC=0 MOCK_BATT_PCT=5
+    for mode in always discharging-or-low low-only; do
+        export MOCK_OPT_useful_batt_show_when="$mode"
+        rm -f "$TMUX_USEFUL_CACHE_DIR/battery"
+        run_battery
+        [[ "$output" == *"!"* ]] || { echo "$mode lost the crit marker" >&2; return 1; }
+        [[ "$output" != *"!!"* ]] || { echo "$mode doubled the crit marker" >&2; return 1; }
+    done
+}
+
+@test "low-only mode gives warn no prefix — presence is already the cue there" {
     export MOCK_BATT_AC=0
     export MOCK_BATT_PCT=30
+    export MOCK_OPT_useful_batt_show_when=low-only
     run_battery
-    [[ "$output" != *"!"* ]]
+    [ -n "$output" ]
+    [[ "$output" != *"~"* ]]
 }
 
 @test "ASCII icons toggle replaces nerd-font glyphs" {
@@ -150,4 +190,38 @@ run_battery() {
             return 1
         }
     done
+}
+
+@test "@useful-batt-crit-prefix can suppress the '!' marker" {
+    # Parity with system.sh's per-metric crit prefixes: a user who wants
+    # colour-only crit signalling everywhere could not get it for battery.
+    export MOCK_BATT_AC=0 MOCK_BATT_PCT=5
+    run_battery
+    [[ "$output" == *"!"* ]]
+    export MOCK_OPT_useful_batt_crit_prefix="none"
+    rm -f "$TMUX_USEFUL_CACHE_DIR/battery"
+    run_battery
+    [[ "$output" != *"!"* ]]
+}
+
+@test "@useful-batt-crit-prefix can be changed rather than removed" {
+    export MOCK_BATT_AC=0 MOCK_BATT_PCT=5
+    export MOCK_OPT_useful_batt_crit_prefix="LOW "
+    run_battery
+    [[ "$output" == *"LOW "* ]]
+}
+
+@test "a non-numeric threshold falls back instead of blanking the segment" {
+    export MOCK_BATT_AC=0 MOCK_BATT_PCT=25
+    export MOCK_OPT_useful_batt_warn="forty"
+    run_battery
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"25%"* ]]
+}
+
+@test "an unreadable battery percentage is not rendered as a number" {
+    export MOCK_PMSET_EMPTY=1
+    run_battery
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
 }

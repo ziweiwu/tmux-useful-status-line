@@ -56,6 +56,7 @@ is_linux()  { [ "$(useful_os)" = "Linux" ]; }
 # registering it here fails CI rather than silently falling back to a fork.
 USEFUL_OPT_MANIFEST="
 @useful-batt-crit
+@useful-batt-crit-prefix
 @useful-batt-full-pct
 @useful-batt-icon-charging
 @useful-batt-icon-empty
@@ -69,6 +70,7 @@ USEFUL_OPT_MANIFEST="
 @useful-battery-enabled
 @useful-cache-dir
 @useful-color-accent
+@useful-contrast
 @useful-color-crit
 @useful-color-dim
 @useful-color-ok
@@ -107,9 +109,12 @@ USEFUL_OPT_MANIFEST="
 @useful-system-enabled
 @useful-system-show-when
 @useful-theme
+@useful-timeout
+@useful-timeout-total
 @useful-weather-enabled
 @useful-weather-format
 @useful-weather-location
+@useful-weather-max-len
 @useful-weather-refresh
 @useful-warn-prefix
 @useful-weather-stale
@@ -246,6 +251,52 @@ get_tmux_option() {
     fi
 }
 
+# Numeric @useful-* option, validated.
+#
+# A typo'd threshold used to reach `[ x -ge y ]` raw: bash wrote "integer
+# expression expected" to stderr, tmux's #() captures only stdout, and the
+# segment silently vanished with no way for the user to tell why. Fall back to
+# the documented default instead, and leave one line on stderr for anyone
+# running the script by hand.
+#
+# Non-negative integers only — every numeric option here is a percentage, a
+# cell budget or a duration. The 9-digit ceiling keeps values inside the range
+# `[` can compare: bash rejects anything past 2^63-1 with exactly the opaque
+# error we are trying to eliminate.
+useful_int_option() {
+    local option="$1" default="$2" val
+    val=$(get_tmux_option "$option" "$default")
+    case "$val" in
+        ''|*[!0-9]*|??????????*)
+            printf "useful-status: %s: '%s' is not an integer in 0-999999999; using %s\n" \
+                "$option" "$val" "$default" >&2
+            val="$default"
+            ;;
+    esac
+    printf "%s" "$val"
+}
+
+# Icon @useful-* option, ready to concatenate.
+#
+# Two problems solved together. First, there was no way to turn an icon OFF:
+# get_tmux_option treats "" as "unset" and hands back the default, so
+# `set -g @useful-git-icon ""` silently kept the glyph. Clearing one now needs
+# an explicit word, reusing the none/off/false/no vocabulary the crit-prefix
+# options already speak.
+#
+# Second, the separating space is carried ON the icon rather than written into
+# the format string. "%s %s" with an empty icon emits a doubled leading space;
+# collapsing it here means every call site gets the empty case right for free.
+useful_icon_option() {
+    local val
+    val=$(get_tmux_option "$1" "$2")
+    case "$val" in
+        none|off|false|no) ;;
+        "")                ;;
+        *)                 printf "%s " "$val" ;;
+    esac
+}
+
 # Active pane's working directory / foreground command. Both come from the
 # config snapshot when tmux answered; the direct calls are the fallback for a
 # detached server, and TMUX_PANE_CURRENT_PATH lets a caller inject a cwd.
@@ -279,6 +330,108 @@ useful_request_redraw() {
     tmux refresh-client -S 2>/dev/null || true
 }
 
+# ------------------------------------------------------------------ timeouts
+#
+# Every data source this plugin reads can block indefinitely, and several do so
+# in practice: `df` on a stale NFS mount, `git status` on a network filesystem,
+# `osascript` while Spotify is wedged, `pmset` during an IOKit hiccup. The
+# driver runs all six segments serially in one process, so one stuck call
+# freezes the entire status line — and the README's shell-prompt recipe wires
+# the same binary into PS1/RPROMPT, where it freezes the prompt.
+#
+# Built from bash job control rather than delegating to timeout(1) when the
+# platform has one. That dual-path design was tried and withdrawn: the two
+# implementations disagreed about `0` (coreutils reads it as "no limit", a bare
+# `sleep 0` watchdog reads it as "kill immediately") and about SIGKILL
+# escalation (GNU timeout needs an explicit -k; BSD and busybox spell it
+# differently or not at all). An escape hatch that works on Linux and breaks on
+# macOS is worse than no escape hatch, and macOS — the platform most of this
+# runs on — ships no timeout(1) anyway, so the fallback WAS the main path.
+
+# Grace period between SIGTERM and SIGKILL.
+USEFUL_TIMEOUT_KILL_AFTER=1
+
+# Smallest slice the whole-run budget will hand out. See useful_timeout.
+USEFUL_TIMEOUT_FLOOR=1
+
+# Whole-run budget, in seconds. The per-call limit alone bounds each source but
+# not their sum: system.sh guards four calls, git.sh three, spotify.sh two,
+# battery.sh one, so a host where everything is wedged at once — the exact
+# stale-NFS scenario this exists for — could still block 10 x @useful-timeout.
+# Populated by useful_config_load; 0 disables the ceiling.
+USEFUL_TIMEOUT_TOTAL=0
+
+# useful_timeout <seconds> <command> [args...]
+# Runs the command, killing it if it outruns the budget. Exit status is the
+# command's own, or non-zero when it was killed — callers treat both the same
+# way they already treat a failing data source.
+useful_timeout() {
+    local secs="$1"; shift
+    # 0 means "no limit", and disables the whole-run ceiling with it: a user who
+    # turns the bound off gets it off, not a different bound.
+    if [ "$secs" = "0" ]; then
+        "$@"
+        return $?
+    fi
+
+    # SECONDS counts from process start and is a bash builtin, so the shared
+    # deadline costs no fork — which matters, because this runs per data source.
+    #
+    # The budget SHRINKS later calls; it never cancels them. Refusing to run a
+    # call once the clock was spent looked tidier and was wrong: the driver runs
+    # segments in a fixed order, so a wedged `git` early in the list silenced a
+    # perfectly healthy `battery` later in it — the status line went blank
+    # because of a failure in an unrelated segment, which inverts the whole
+    # "silent when healthy, loud when it isn't" contract and leaves the user
+    # unable to tell the two apart. A healthy source answers in milliseconds, so
+    # the floor costs nothing when things are fine and bounds the overrun when
+    # they are not.
+    if [ "${USEFUL_TIMEOUT_TOTAL:-0}" -gt 0 ]; then
+        local remaining=$(( USEFUL_TIMEOUT_TOTAL - SECONDS ))
+        if [ "$remaining" -lt "$secs" ]; then
+            secs="$remaining"
+            [ "$secs" -lt "$USEFUL_TIMEOUT_FLOOR" ] && secs="$USEFUL_TIMEOUT_FLOOR"
+        fi
+    fi
+
+    local cmd_pid watch_pid rc had_monitor=0
+    # Job control, so the child leads its own process group and the watchdog can
+    # signal the whole tree. Killing just the direct child is not enough: it is
+    # the GRANDchildren that keep the command-substitution pipe open, so
+    # `pmset | awk` or `sh -c "sleep 5"` would still block for the full runtime
+    # after its parent died.
+    case "$-" in *m*) had_monitor=1 ;; esac
+    set -m
+    # `<&0` is load-bearing, not decoration. Bash redirects an asynchronous
+    # command's stdin from /dev/null "in the absence of any explicit
+    # redirections" — which silently ate the heredoc carrying spotify.sh's
+    # AppleScript.
+    "$@" <&0 &
+    cmd_pid=$!
+    [ "$had_monitor" -eq 0 ] && set +m
+    # The watchdog MUST NOT inherit stdout. Callers run this inside $(...), and
+    # a command substitution ends when the last writer closes the pipe, not
+    # when the foreground child exits — a watchdog holding the pipe open would
+    # make every guarded call wait out the full timeout.
+    (
+        sleep "$secs"
+        kill -TERM "-$cmd_pid" 2>/dev/null
+        # Then escalate. SIGTERM alone is a request, and a data source is free
+        # to ignore it — wrapper scripts and anything with a graceful-shutdown
+        # handler routinely do. Without this the `wait` below blocks forever on
+        # a process that trapped TERM, which is precisely the hang the timeout
+        # was added to prevent, and the child leaks as an orphan on top.
+        sleep "$USEFUL_TIMEOUT_KILL_AFTER"
+        kill -KILL "-$cmd_pid" 2>/dev/null
+    ) >/dev/null 2>&1 &
+    watch_pid=$!
+    wait "$cmd_pid" 2>/dev/null
+    rc=$?
+    kill "$watch_pid" 2>/dev/null
+    wait "$watch_pid" 2>/dev/null
+    return "$rc"
+}
+
 # Cache helper: prints cache contents to stdout and exits 0 if fresh.
 # Usage: cache_check "$CACHE_FILE" "$MAX_AGE_SEC" || run_and_cache
 cache_check() {
@@ -289,8 +442,39 @@ cache_check() {
     mtime=$(file_mtime "$file")
     [ -z "$mtime" ] && return 1
     age=$(( $(date +%s) - mtime ))
+    # A future mtime makes `age` negative, which passes any max_age test and
+    # pins the entry as fresh forever. Clock skew, a VM restored from a
+    # snapshot, or a hand-planted cache file all produce it. Treat "written in
+    # the future" as stale and re-derive.
+    [ "$age" -ge 0 ] || return 1
     [ "$age" -lt "$max_age" ] || return 1
-    cat "$file"
+
+    # A cache entry is markup we wrote — but not necessarily markup we finished
+    # writing. A `tee` killed mid-write (a full disk, the timeout above firing,
+    # a SIGKILL) leaves a colour run open, and tmux then bleeds that colour into
+    # every segment drawn after it, for the whole TTL. Bit-rot, a truncated
+    # write, or another process with access to the cache dir can put arbitrary
+    # bytes in there too, and those went straight to the terminal.
+    #
+    # $(<file) rather than `cat`: a builtin read, one fork fewer on the path
+    # taken by every warm refresh.
+    local content
+    content=$(<"$file")
+    # An entry far longer than any status line could be is corrupt, not cached.
+    # Recompute rather than paste it into the bar. ${#} is a builtin, so this
+    # costs nothing on the warm path it guards. x4 leaves room for multi-byte
+    # characters, which are counted here in bytes.
+    [ "${#content}" -gt $(( USEFUL_MAX_CELLS * 4 )) ] && return 1
+    content="${content//[[:cntrl:]]/ }"
+    case "$content" in
+        *'#[fg='*)
+            case "$content" in
+                *'#[fg=default]') ;;
+                *) content="$content#[fg=default]" ;;
+            esac
+            ;;
+    esac
+    printf "%s" "$content"
     return 0
 }
 
@@ -404,6 +588,12 @@ useful_config_load
 # shellcheck source=themes.sh
 source "$(dirname "${BASH_SOURCE[0]}")/themes.sh"
 
+# Whole-run timeout ceiling. Read here rather than at its definition because
+# get_tmux_option needs the config snapshot above. Default 10s: comfortably
+# more than any healthy refresh needs, comfortably less than the ~30s a fully
+# wedged host could otherwise reach through ten independently-guarded calls.
+USEFUL_TIMEOUT_TOTAL=$(useful_int_option "@useful-timeout-total" 10)
+
 # --------------------------------------------------------------------- width
 #
 # Terminal layout is measured in CELLS, not characters. A CJK ideograph or an
@@ -424,28 +614,70 @@ source "$(dirname "${BASH_SOURCE[0]}")/themes.sh"
 # Sets USEFUL_CP (codepoint) and USEFUL_CP_LEN (bytes consumed).
 # Assumes the caller has already switched to LC_ALL=C.
 useful_utf8_decode() {
-    local s="$1" i="$2" ch b0 b1 b2 b3
+    local s="$1" i="$2" ch b0 b1 b2 b3 need k bb bc lo hi
     ch="${s:$i:1}"
     if [ -z "$ch" ]; then USEFUL_CP=0; USEFUL_CP_LEN=1; return; fi
     printf -v b0 '%d' "'$ch"
     [ "$b0" -lt 0 ] && b0=$(( b0 + 256 ))
-    if [ "$b0" -lt 192 ]; then
-        # ASCII, or a stray continuation byte we step over rather than choke on.
-        USEFUL_CP=$b0; USEFUL_CP_LEN=1
-    elif [ "$b0" -lt 224 ]; then
-        printf -v b1 '%d' "'${s:$((i+1)):1}"; [ "$b1" -lt 0 ] && b1=$(( b1 + 256 ))
-        USEFUL_CP=$(( ((b0 & 31) << 6) | (b1 & 63) )); USEFUL_CP_LEN=2
-    elif [ "$b0" -lt 240 ]; then
-        printf -v b1 '%d' "'${s:$((i+1)):1}"; [ "$b1" -lt 0 ] && b1=$(( b1 + 256 ))
-        printf -v b2 '%d' "'${s:$((i+2)):1}"; [ "$b2" -lt 0 ] && b2=$(( b2 + 256 ))
-        USEFUL_CP=$(( ((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63) )); USEFUL_CP_LEN=3
-    else
-        printf -v b1 '%d' "'${s:$((i+1)):1}"; [ "$b1" -lt 0 ] && b1=$(( b1 + 256 ))
-        printf -v b2 '%d' "'${s:$((i+2)):1}"; [ "$b2" -lt 0 ] && b2=$(( b2 + 256 ))
-        printf -v b3 '%d' "'${s:$((i+3)):1}"; [ "$b3" -lt 0 ] && b3=$(( b3 + 256 ))
-        USEFUL_CP=$(( ((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63) ))
-        USEFUL_CP_LEN=4
+
+    if [ "$b0" -lt 128 ]; then USEFUL_CP=$b0; USEFUL_CP_LEN=1; return; fi
+
+    # Not a legal lead byte -> one bad byte, consumed alone. Terminals draw one
+    # replacement glyph per undecodable byte, so consuming exactly one keeps the
+    # cell count in step with what is actually painted.
+    #   0x80-0xBF  stray continuation byte
+    #   0xC0-0xC1  overlong two-byte forms, never valid
+    #   0xF5-0xFF  past U+10FFFF, never valid
+    # Trusting these as leads is what let a single 0xFF swallow the three ASCII
+    # characters after it, under-counting the string by three cells and
+    # overflowing the very budget useful_truncate exists to guarantee.
+    if [ "$b0" -lt 194 ] || [ "$b0" -gt 244 ]; then
+        USEFUL_CP=$b0; USEFUL_CP_LEN=1; return
     fi
+
+    if   [ "$b0" -lt 224 ]; then need=1
+    elif [ "$b0" -lt 240 ]; then need=2
+    else                         need=3
+    fi
+
+    # The FIRST continuation byte has a narrower legal range for four of the
+    # lead bytes (RFC 3629 / WHATWG). Accepting the full 0x80-0xBF there admits
+    # overlong forms, UTF-16 surrogates, and codepoints past U+10FFFF — none of
+    # which a compliant terminal decodes as one glyph. It substitutes one
+    # replacement per bad byte, so "\xE0\x80\x80" is three cells to the
+    # terminal and was one cell to us: a 24-cell budget rendered 72 columns.
+    lo=128; hi=191
+    case "$b0" in
+        224) lo=160 ;;   # 0xE0: 0x80-0x9F would be an overlong 2-byte form
+        237) hi=159 ;;   # 0xED: 0xA0-0xBF would be a UTF-16 surrogate
+        240) lo=144 ;;   # 0xF0: 0x80-0x8F would be an overlong 3-byte form
+        244) hi=143 ;;   # 0xF4: 0x90-0xBF would be past U+10FFFF
+    esac
+
+    # Each continuation byte must be in range, and must exist. A truncated tail
+    # at end-of-string is the other half of the same bug: it used to decode the
+    # missing bytes as zeroes and invent a wide CJK glyph out of nothing.
+    b1=0; b2=0; b3=0; k=1
+    while [ "$k" -le "$need" ]; do
+        bc="${s:$((i+k)):1}"
+        if [ -z "$bc" ]; then USEFUL_CP=$b0; USEFUL_CP_LEN=1; return; fi
+        printf -v bb '%d' "'$bc"
+        [ "$bb" -lt 0 ] && bb=$(( bb + 256 ))
+        if [ "$bb" -lt "$lo" ] || [ "$bb" -gt "$hi" ]; then
+            USEFUL_CP=$b0; USEFUL_CP_LEN=1; return
+        fi
+        case "$k" in 1) b1=$bb ;; 2) b2=$bb ;; *) b3=$bb ;; esac
+        # Only the first continuation byte is constrained further.
+        lo=128; hi=191
+        k=$(( k + 1 ))
+    done
+
+    case "$need" in
+        1) USEFUL_CP=$(( ((b0 & 31) << 6) | (b1 & 63) )); USEFUL_CP_LEN=2 ;;
+        2) USEFUL_CP=$(( ((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63) )); USEFUL_CP_LEN=3 ;;
+        *) USEFUL_CP=$(( ((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63) ))
+           USEFUL_CP_LEN=4 ;;
+    esac
 }
 
 # Cells occupied by codepoint $1 -> USEFUL_CW (0, 1 or 2).
@@ -500,18 +732,96 @@ useful_display_width() {
     USEFUL_WIDTH=$w
 }
 
+# Longest run of zero-width marks allowed to ride on one base glyph.
+#
+# Only U+0300-036F, ZWJ and the variation selectors measure zero here, and no
+# real script stacks more than three of those. Without a cap, a cell budget is
+# not a bound on anything: 500 combining acutes measure ONE cell, so the whole
+# run is "in budget" and 501 characters reach a terminal that was promised 5.
+# That is the zalgo overflow, and a Spotify track title is enough to trigger it.
+USEFUL_MAX_MARKS=4
+
+# Hard ceiling on any cell budget, whatever a @useful-*-max-len says.
+#
+# No terminal is 20,000 columns wide, so a budget that large is not a budget —
+# it is the absence of one. It matters because bash's ${var//pat/rep} is
+# quadratic in the NUMBER OF MATCHES (measured: 2k matches 0.6s, 4k 4.3s, 8k
+# 38s), and useful_escape doubles every '#'. A hash-dense wttr.in body — the
+# captive-portal splash these caps exist for — therefore turned a raised
+# max-len into minutes of CPU with the status line frozen behind it. Capping
+# the budget is what keeps that input bounded before it ever reaches escaping.
+USEFUL_MAX_CELLS=512
+
 # Extract the run of $1 beginning at cell offset $2 and spanning at most $3
 # cells. Sets USEFUL_WINDOW, plus USEFUL_WINDOW_CUT_HEAD / _CUT_TAIL to 1 when
 # content was dropped before / after the window. Never splits a character.
-# shellcheck disable=SC2034  # CUT_HEAD/CUT_TAIL are read by callers (spotify.sh)
+#
+# USEFUL_WINDOW_CUT_TAIL means one specific thing: RENDERABLE content was left
+# behind because the cell budget ran out. It is what useful_truncate uses to
+# decide whether an ellipsis is owed, so the mark clamp must NOT set it —
+# clamping is a defensive trim of glyphs that occupy no cells, and a string
+# whose visible content fits perfectly is not truncated just because one of its
+# characters carried five accents. That conflation put a spurious "…" on
+# in-budget branch names and, at an exact fit, dropped a real character to make
+# room for it. USEFUL_WINDOW_MARKS_CLAMPED reports the clamp separately.
+# shellcheck disable=SC2034  # CUT_HEAD/CUT_TAIL consumed by spotify.sh and
+# useful_truncate; MARKS_CLAMPED/SCAN_LIMITED are diagnostics no caller reads yet
 useful_window() {
     local LC_ALL=C
     local s="$1" start="$2" max="$3"
-    local n i=0 acc=0 taken=0 out="" chunk prev=0 cw
+    local n i=0 acc=0 taken=0 out="" chunk prev=0 cw zrun=0 scanned=0 scan_limit
     USEFUL_WINDOW=""; USEFUL_WINDOW_CUT_HEAD=0; USEFUL_WINDOW_CUT_TAIL=0
+    USEFUL_WINDOW_MARKS_CLAMPED=0; USEFUL_WINDOW_SCAN_LIMITED=0
     n=${#s}
     [ "$max" -lt 1 ] && return
+    # Capping the budget is not itself a cut. If the content really does exceed
+    # the capped budget the loop below will say so; if it does not, a budget the
+    # caller inflated to 20,000 must not conjure an ellipsis onto a short string.
+    [ "$max" -gt "$USEFUL_MAX_CELLS" ] && max=$USEFUL_MAX_CELLS
+
+    # Ceiling on codepoints VISITED, not just on cells kept.
+    #
+    # `taken` is the budget counter, and zero-width marks never advance it — so
+    # a string that is *only* marks keeps `taken` at 0 forever and the loop
+    # walks the whole input however small the budget was. That is the same hole
+    # the mark clamp closed for OUTPUT length, still open for SCAN cost: a
+    # 5,000-mark Spotify title froze the driver for seconds on stock defaults,
+    # in pure bash, where neither @useful-timeout nor @useful-timeout-total can
+    # reach it.
+    #
+    # The bound is exact rather than arbitrary: reaching cell `start + max`
+    # takes at most that many base glyphs, and each may keep USEFUL_MAX_MARKS
+    # marks. Anything past that is necessarily a mark this function would have
+    # dropped anyway, so stopping costs no content a correct run would have kept.
+    scan_limit=$(( (start + max) * (USEFUL_MAX_MARKS + 1) + 16 ))
+
+    # And cut the input itself, not only the iteration count. Bash slices a
+    # string in time proportional to its LENGTH, so `${s:$i:$len}` stays
+    # expensive on a 40KB input even when the loop around it is bounded.
+    # LC_ALL=C is in force here, so the slice is bytewise, as intended.
+    #
+    # This trades fidelity for a bound, and the trade is real: content sitting
+    # AFTER an oversized mark run is past the cut and is lost, even though a
+    # renderer with unlimited time would have shown it — "a" + 100k marks +
+    # "bbb" yields "a" plus four marks, without the "bbb". That is a deliberate
+    # choice, not an oversight. Skipping a mark run cheaply is not something
+    # bash 3.2 can do, and no real text carries thousands of stacked marks, so
+    # the alternative is a status line that a hostile track title can freeze.
+    # USEFUL_WINDOW_SCAN_LIMITED reports it, separately from CUT_TAIL, because
+    # "we stopped looking" and "the tail did not fit" are different claims.
+    local max_bytes=$(( scan_limit * 4 )) precut=0
+    if [ "$n" -gt "$max_bytes" ]; then
+        s="${s:0:$max_bytes}"
+        n=$max_bytes
+        precut=1
+        USEFUL_WINDOW_CUT_TAIL=1
+    fi
+
     while [ "$i" -lt "$n" ]; do
+        scanned=$(( scanned + 1 ))
+        if [ "$scanned" -gt "$scan_limit" ]; then
+            USEFUL_WINDOW_CUT_TAIL=1; USEFUL_WINDOW_SCAN_LIMITED=1; break
+        fi
         useful_utf8_decode "$s" "$i"
         chunk="${s:$i:$USEFUL_CP_LEN}"
         i=$(( i + USEFUL_CP_LEN ))
@@ -521,6 +831,22 @@ useful_window() {
             cw=1   # the selector itself is zero-width; it adds a cell to the previous glyph
         fi
         prev=$USEFUL_CW
+        # Zero-width marks never advance `taken`, so the budget test below can
+        # never stop them. Count the run and drop the overflow instead.
+        if [ "$cw" -eq 0 ]; then
+            zrun=$(( zrun + 1 ))
+            if [ "$zrun" -gt "$USEFUL_MAX_MARKS" ]; then
+                # Dropped, but not a truncation: these occupy no cells, so the
+                # budget is untouched and no ellipsis is owed. The scan ceiling
+                # above is what bounds the cost of a long run; breaking out here
+                # on a full budget would be wrong, because the run may still be
+                # followed by content that fits exactly.
+                USEFUL_WINDOW_MARKS_CLAMPED=1
+                continue
+            fi
+        else
+            zrun=0
+        fi
         if [ "$acc" -lt "$start" ]; then
             acc=$(( acc + cw )); USEFUL_WINDOW_CUT_HEAD=1; continue
         fi
@@ -528,6 +854,14 @@ useful_window() {
         out="$out$chunk"
         taken=$(( taken + cw ))
     done
+    # SCAN_LIMITED means "we stopped examining input before the budget was
+    # satisfied", which the pre-cut alone does not establish: an ordinary long
+    # string gets cut too, and if the loop then filled the budget, nothing was
+    # given up that the budget would not have stopped anyway. Only a cut that
+    # left us short of the budget actually cost us reachable content.
+    if [ "$precut" -eq 1 ] && [ "$taken" -lt "$max" ]; then
+        USEFUL_WINDOW_SCAN_LIMITED=1
+    fi
     USEFUL_WINDOW="$out"
 }
 
@@ -536,8 +870,19 @@ useful_window() {
 # shellcheck disable=SC2034  # USEFUL_TRUNC is read by callers (git.sh, pane.sh)
 useful_truncate() {
     local s="$1" max="$2" ell="${3-…}" ew
-    useful_display_width "$s"
-    if [ "$USEFUL_WIDTH" -le "$max" ]; then USEFUL_TRUNC="$s"; return; fi
+    [ "$max" -gt "$USEFUL_MAX_CELLS" ] && max=$USEFUL_MAX_CELLS
+    # Ask the window first, and read its verdict, instead of measuring the whole
+    # string to decide whether it fits. useful_window stops as soon as the
+    # budget is spent, so this costs O(budget); measuring costs O(length), and
+    # decoding 20,000 characters to learn that they do not fit in 24 cells is
+    # work with no answer in it. Routing through the window also applies the
+    # mark clamp — a string that MEASURES one cell can still be an unbounded run
+    # of combining marks, and "fits the budget" is not "bounded in length".
+    useful_window "$s" 0 "$max"
+    if [ "$USEFUL_WINDOW_CUT_TAIL" -eq 0 ]; then
+        USEFUL_TRUNC="$USEFUL_WINDOW"
+        return
+    fi
     useful_display_width "$ell"
     ew=$USEFUL_WIDTH
     # No room even for the marker: emit nothing rather than overflow by a cell.
@@ -586,26 +931,85 @@ useful_ansi_attr() {
     esac
 }
 
+# Escape text that did NOT come from this repo before it joins the markup.
+#
+# A git branch, a Spotify track title and a wttr.in response are all authored
+# elsewhere, and all three land in a tmux format string. Any '#' in them is
+# live syntax: "#[bg=red]" repaints the bar (a background block, which
+# AGENTS.md bans outright), and "#{...}" expands as a format. "##" is tmux's
+# escape for a literal '#', and useful_render below turns it back into one for
+# the non-tmux hosts.
+#
+# Deliberately NOT applied to @useful-* option values. Those are the user's own
+# tmux config — already trusted, already able to set any tmux option directly,
+# and escaping them would break anyone deliberately colouring an icon.
+useful_escape() {
+    local s="$1"
+    # Control characters first. A status line is one line by contract, and a
+    # wttr.in body — a captive-portal splash, an error page — can carry raw
+    # newlines that break it. Worse, a lone CR returns the cursor and lets
+    # attacker-controlled text overprint the segment's own output, hiding the
+    # "~" stale marker or forging a truncation ellipsis. They also produce
+    # JSON that RFC 8259 forbids, so a strict waybar-side parser rejects the
+    # whole object. Replaced with a space rather than deleted, so words on
+    # either side do not fuse; a space is also what our width table already
+    # charges for a control byte, which keeps the cell budget honest.
+    s="${s//[[:cntrl:]]/ }"
+    printf "%s" "${s//#/##}"
+}
+
 # useful_render <tmux|ansi|plain> <text>
 useful_render() {
     local mode="$1" text="$2" out="" pre rest tok
     [ "$mode" = "tmux" ] && { printf "%s" "$text"; return; }
+    # Collapse the "##" escape in ONE bulk substitution before scanning.
+    #
+    # This is a performance fix, not a cosmetic one. The scan below consumes the
+    # text up to the next '#' and re-slices the remainder each time, so its cost
+    # is quadratic in the number of '#' it has to visit — and escaped text is
+    # ALL hashes. A 20k-hash wttr.in body (a captive-portal splash, the exact
+    # scenario the length cap was added for) took over a minute; the same input
+    # after this pass leaves nothing for the loop to visit at all, because every
+    # hash in untrusted text is doubled by useful_escape and collapses here.
+    # What remains is this repo's own markup: about a dozen tokens.
+    #
+    # U+0001 is safe as the placeholder precisely because useful_escape strips
+    # control characters, so it cannot occur in escaped text. If it shows up
+    # anyway — a direct caller passing raw bytes — skip the shortcut and let the
+    # scan handle "##" itself, which it still does, just slowly.
+    local ph=$'\001' unescape=0
+    case "$text" in
+        *"$ph"*) ;;
+        *'##'*)  text="${text//\#\#/$ph}"; unescape=1 ;;
+    esac
+    # Scans '#' rather than '#[' so that the "##" escape is decoded here too.
+    # Matching '#[' alone would read the second '#' of an escaped "###[fg=red]"
+    # as the start of a real attribute and let escaped text style the output of
+    # the very modes that are supposed to be inert.
     while [ -n "$text" ]; do
         case "$text" in
-            *'#['*)
-                pre="${text%%#\[*}"
-                rest="${text#*#\[}"
-                tok="${rest%%\]*}"
-                text="${rest#*\]}"
+            *'#'*)
+                pre="${text%%#*}"
                 out="$out$pre"
-                if [ "$mode" = "ansi" ]; then
-                    useful_ansi_attr "$tok"
-                    out="$out$ANSI"
-                fi
+                rest="${text#*#}"
+                case "$rest" in
+                    '#'*)        out="$out#"; text="${rest#?}" ;;
+                    '['*']'*)    tok="${rest#\[}"; tok="${tok%%\]*}"
+                                 text="${rest#*\]}"
+                                 if [ "$mode" = "ansi" ]; then
+                                     useful_ansi_attr "$tok"
+                                     out="$out$ANSI"
+                                 fi
+                                 ;;
+                    # A lone '#', or a '#[' that never closes. Emit it as text;
+                    # `rest` is strictly shorter each pass, so this terminates.
+                    *)           out="$out#"; text="$rest" ;;
+                esac
                 ;;
             *) out="$out$text"; text="" ;;
         esac
     done
+    [ "$unescape" -eq 1 ] && out="${out//$ph/#}"
     printf "%s" "$out"
 }
 
@@ -630,6 +1034,12 @@ useful_json_escape() {
     s="${s//\"/\\\"}"
     s="${s//	/\\t}"
     s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    # Belt and braces behind useful_escape: any other C0 control that reaches
+    # here would be a literal control byte inside a JSON string, which RFC 8259
+    # forbids outright. A consumer that parses strictly rejects the whole
+    # object, so the segment that misbehaved takes the other five down with it.
+    s="${s//[[:cntrl:]]/ }"
     printf "%s" "$s"
 }
 

@@ -231,13 +231,39 @@ All options are `set -g @useful-...`. Defaults shown.
 set -g @useful-theme "nord"
 ```
 
-Available: `nord` *(default)*, `catppuccin-mocha`/`-macchiato`/`-frappe`/`-latte`, `gruvbox`/`-light`, `everforest`, `vitesse`, `rose-pine`/`-dawn`, `tokyo-night`, `dracula`, `solarized-dark`/`-light`, `onedark`. All dim tones pass WCAG AA contrast.
+Available: `nord` *(default)*, `catppuccin-mocha`/`-macchiato`/`-frappe`/`-latte`, `gruvbox`/`-light`, `everforest`, `vitesse`, `rose-pine`/`-dawn`, `tokyo-night`, `dracula`, `solarized-dark`/`-light`, `onedark`.
+
+Each palette is reproduced from its upstream source, byte for byte. That
+fidelity is the point of naming a theme after its author — and it also means
+24 of the 80 tones sit below the WCAG AA 4.5:1 contrast threshold against
+their own canonical background. Nord's aurora red measures 3.05:1;
+rose-pine-dawn's warm orange measures 2.05:1, which is *less* visible than
+that theme's "everything is fine" green.
+
+To opt into corrected tones:
+
+```tmux
+set -g @useful-contrast "aa"
+```
+
+Every tone of every theme then clears 4.5:1, adjusted in lightness only so it
+still reads as the theme's colour. `tests/test_themes.bats` measures this, so
+the claim stays true. An explicit `@useful-color-*` outranks both.
 
 Auto light/dark (Ghostty-style):
 
 ```tmux
 set -g @useful-theme "dark:catppuccin-mocha,light:catppuccin-latte"
 ```
+
+Appearance is detected per platform, cached for 60s:
+
+| Platform | Signal | Caveat |
+|---|---|---|
+| macOS | `defaults read -g AppleInterfaceStyle` | Follows the system setting. |
+| Everything else | the `COLORFGBG` environment variable | Best-effort. Only some terminals (rxvt, konsole, and imitators) set it; when it is absent the guess is `dark`. It is inherited from the process environment rather than queried live, so it can be stale after `tmux attach` from a different terminal. |
+
+If auto mode picks the wrong half on Linux, name the theme directly.
 
 Override individual colors (wins over the theme):
 
@@ -246,6 +272,26 @@ set -g @useful-color-ok     "#a3be8c"   # also -warn / -crit / -accent / -dim
 ```
 
 ### System (CPU, mem, disk)
+
+Severity is readable without colour. **Crit is always `!`**, in every segment
+and every mode. Warn takes `~` wherever healthy values are also rendered — under
+`all-always` or `mem-and-disk-always` — because there warn would otherwise
+differ from healthy by hue alone. In the default `warn-and-crit` mode a healthy
+metric renders nothing at all, so the segment appearing *is* the cue and warn
+needs no prefix.
+
+The two markers differ by shape rather than by count on purpose: a status line
+is read as one line, so `!mem 95%` beside a doubled marker on another segment
+would claim one is worse when both are critical — false to exactly the readers
+who have nothing but the prefix. Override either with `@useful-warn-prefix` and
+`@useful-<metric>-crit-prefix`; `none` on either suppresses it.
+
+`~` means the same thing wherever it appears: **advisory, not alarm**. That is
+also what it means on stale weather data, so a line can carry it twice —
+`~Sunny 20C ~mem 80%` reads as "this reading may be old" and "this value is
+elevated". Both are the same register, and neither is urgent; `!` is the only
+marker that means "act now". `--render=json` reports the exact severity per
+segment for consumers that need to tell them apart.
 
 ```tmux
 set -g @useful-system-show-when "warn-and-crit"   # warn-and-crit | mem-and-disk-always | all-always
@@ -283,18 +329,27 @@ set -g @useful-warn-prefix "~"     # default: "" (none)
 
 ```tmux
 set -g @useful-batt-warn       40       # below: warn color (when discharging)
-set -g @useful-batt-crit       20       # below: crit color + "!" prefix
+set -g @useful-batt-crit       20       # below: crit color + crit prefix (see the ladder below)
 set -g @useful-batt-show-when  "always" # always | discharging-or-low | low-only
 set -g @useful-batt-icons-ascii off     # "on" → [####] etc., for non-Nerd-Font terminals
 set -g @useful-batt-full-pct   95       # at or above: treated as full (full glyph)
+set -g @useful-batt-crit-prefix "!"     # colour-free crit cue; "none" to suppress
 ```
 
 Individual glyphs: `@useful-batt-icon-full` / `-high` / `-mid` / `-low` / `-empty` / `-charging`.
+Set any of them to `none` to drop the glyph entirely.
+
+The glyph is a **charge gauge**, with fixed tiers at 90/60/30/15%. It is
+deliberately independent of `@useful-batt-warn` / `-crit`, which control
+*severity*. That is exactly why the prefixes carry the severity: a warn battery
+at 39% and a healthy one at 45% draw the *same* mid glyph. So the ladder is
+`""` / `~` / `!`, matching the system segment. In `low-only` mode nothing
+renders unless the battery is already low, so warn needs no marker there.
 
 ### Spotify
 
 ```tmux
-set -g @useful-spotify-max-len   30
+set -g @useful-spotify-max-len   30      # capped at 512
 set -g @useful-spotify-separator " · "
 set -g @useful-spotify-scroll    "on"   # slides through long titles once on track change
 set -g @useful-spotify-scroll-dwell    2   # seconds held at the start before sliding
@@ -310,14 +365,19 @@ set -g @useful-weather-location ""       # "" = wttr.in geo-IP. e.g. "Toronto", 
 set -g @useful-weather-format   "%c+%t"  # condition + temp. Verbose: "%c+%C+%t++💧%h++💨%w"
 set -g @useful-weather-refresh  900      # seconds between wttr.in fetches
 set -g @useful-weather-stale    3600     # seconds before cached data gets a "~" prefix
+set -g @useful-weather-max-len  24       # cells; wttr.in error pages are not short (capped at 512)
 ```
+
+A failed fetch is rate-limited to one attempt per minute rather than retried on
+every refresh, so being offline costs one blocked call a minute, not one per
+status tick.
 
 ### Git
 
 ```tmux
 set -g @useful-git-skip-untracked "off"  # "on" speeds up dirty check in monorepos
 set -g @useful-git-dirty-mark     "*"
-set -g @useful-git-max-branch-len 24     # longer branches truncate with "…"
+set -g @useful-git-max-branch-len 24     # longer branches truncate with "…" (capped at 512)
 ```
 
 Detached HEAD shows the short SHA as `@a1b2c3d`.
@@ -326,7 +386,7 @@ Detached HEAD shows the short SHA as `@a1b2c3d`.
 
 ```tmux
 set -g @useful-pane-hide    "zsh bash sh fish dash tmux"   # commands to suppress (boring shells)
-set -g @useful-pane-max-len 16                             # longer names truncate with "…"
+set -g @useful-pane-max-len 16                             # longer names truncate with "…" (capped at 512)
 set -g @useful-pane-icon    ""                            # prefix glyph
 ```
 
@@ -343,6 +403,39 @@ set -g @useful-segments "git pane spotify system weather battery"   # order and 
 Both apply to `#{useful_all}` / `bin/useful-status`; the `--render` and
 `--segments` flags override them.
 
+```tmux
+set -g @useful-timeout       3    # seconds any single data source may take
+set -g @useful-timeout-total 10   # budget for the refresh as a whole
+```
+
+`@useful-timeout-total` **shrinks** the total, it does not cap it. Once the
+budget is spent every remaining source still gets a one-second floor, so the
+worst case is `@useful-timeout-total` plus about a second per guarded call still
+pending. At most eleven are guarded per refresh: `system` four (two `sysctl`,
+`memory_pressure`, `df`), `git` four (three git calls, plus a fourth to resolve
+a detached HEAD), `spotify` two, `battery` one. `weather` guards none — `curl`
+carries its own `--max-time`.
+
+The floor is the point. Cancelling those calls outright would be tidier and was
+wrong: the driver runs segments in a fixed order, so a wedged `git` blanked a
+perfectly healthy `battery` further down it, and the bar went dark for a reason
+that had nothing to do with the segment that vanished. A healthy source answers
+in milliseconds, so the floor costs nothing when things are fine.
+
+Set `@useful-timeout` to `0` to disable both bounds entirely.
+
+Two bounds, because one is not enough: eleven external calls are guarded across
+a refresh, so a host where everything is wedged at once — the stale-NFS case
+this exists for — could block `11 x @useful-timeout` even though every
+individual call honoured its limit. `@useful-timeout-total` bounds that.
+
+`df` on a stale NFS mount, `git status` on a network filesystem and `osascript`
+against a wedged Spotify can all block indefinitely. The driver runs the six
+segments serially in one process, so without a bound one stuck call freezes the
+whole status line — and the shell-prompt recipe above with it. A source that
+outruns its budget is treated as unavailable for that refresh. Uses `timeout(1)`
+where the platform has one, and a bash watchdog where it does not (macOS).
+
 ### Cache directory
 
 Defaults to `${TMPDIR:-/tmp}/tmux-useful-<UID>-<socket-hash>` so multiple servers/users don't collide. Override with `@useful-cache-dir`.
@@ -357,6 +450,25 @@ set -g @useful-batt-icons-ascii "on"       # battery as [####] 92%
 set -g @useful-spotify-icon     "♪"
 set -g @useful-git-icon         "git"
 ```
+
+No icons at all? Set any icon option to `none` (or `off`). An empty string will
+*not* work — tmux options treat `""` as unset, so it falls back to the default.
+
+```tmux
+set -g @useful-icon-load  "none"
+set -g @useful-git-icon   "none"
+```
+
+### Text from outside the plugin
+
+Git branch names, Spotify track titles and wttr.in responses are authored
+elsewhere, so they are escaped before joining the status line: `#` becomes `##`
+(tmux's literal `#`), and control characters become spaces. Without that, a
+track title containing `#[bg=red]` repaints the bar, and a captive-portal
+response containing a carriage return can overprint the segment's own text.
+
+`@useful-*` option values are *not* escaped — those are your own tmux config,
+already able to set any tmux option directly.
 
 ## Troubleshooting
 
@@ -380,7 +492,7 @@ tmux set -gu status-right; tmux set -gu status-left; tmux source-file ~/.tmux.co
 ## Development
 
 ```sh
-make check    # shellcheck + 215 bats tests
+make check    # shellcheck + 299 bats tests
 ```
 
 CI runs the matrix on macOS + Ubuntu for every push. See [AGENTS.md](AGENTS.md) for the conventions.

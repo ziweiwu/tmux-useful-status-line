@@ -29,22 +29,28 @@ cache_check "$CACHE_FILE" 3 && return 0
 
 DIM=$(color_dim)
 WARN=$(color_warn)
-ICON=$(get_tmux_option "@useful-git-icon" "")
+# An icon set to "" is a supported way to ask for no icon. Carry the separating
+# space ON the icon so the empty case collapses cleanly instead of emitting the
+# doubled leading space that "%s %s" would produce.
+ICON=$(useful_icon_option "@useful-git-icon" "")
 DIRTY_MARK=$(get_tmux_option "@useful-git-dirty-mark" "*")
+# See @useful-timeout in helpers.sh. `git status` on a network filesystem or a
+# repo mid-gc is the single most likely source of a wedged status line.
+TIMEOUT=$(useful_int_option "@useful-timeout" 3)
 
 # Resolve to top-level once, then ask for branch + porcelain status from there.
 # This lets us cache by the repo path rather than the pane's exact cwd, but
 # we still cache by the pane cwd because that's cheaper to key on.
-top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
+top=$(useful_timeout "$TIMEOUT" git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$top" ]; then
     : >"$CACHE_FILE"
     return 0
 fi
 
-branch=$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null)
+branch=$(useful_timeout "$TIMEOUT" git -C "$top" symbolic-ref --short HEAD 2>/dev/null)
 # Detached HEAD: show the short SHA.
 if [ -z "$branch" ]; then
-    branch=$(git -C "$top" rev-parse --short HEAD 2>/dev/null)
+    branch=$(useful_timeout "$TIMEOUT" git -C "$top" rev-parse --short HEAD 2>/dev/null)
     [ -n "$branch" ] && branch="@${branch}"
 fi
 [ -z "$branch" ] && { : >"$CACHE_FILE"; return 0; }
@@ -52,7 +58,7 @@ fi
 # Truncate long branch names so a feature/very-long-name doesn't blow out the
 # bar. The budget is in terminal CELLS, not characters: a 24-character CJK
 # branch name occupies 40 cells, and ${#branch} would happily pass it through.
-MAX_BRANCH_LEN=$(get_tmux_option "@useful-git-max-branch-len" 24)
+MAX_BRANCH_LEN=$(useful_int_option "@useful-git-max-branch-len" 24)
 useful_truncate "$branch" "$MAX_BRANCH_LEN"
 branch="$USEFUL_TRUNC"
 
@@ -66,7 +72,7 @@ else
     porcelain_args="--porcelain"
 fi
 # shellcheck disable=SC2086
-if [ -n "$(git -C "$top" status $porcelain_args 2>/dev/null)" ]; then
+if [ -n "$(useful_timeout "$TIMEOUT" git -C "$top" status $porcelain_args 2>/dev/null)" ]; then
     dirty="$DIRTY_MARK"
 fi
 
@@ -76,7 +82,10 @@ else
     color="$DIM"
 fi
 
-printf " #[fg=%s]%s %s%s#[fg=default]" "$color" "$ICON" "$branch" "$dirty" | tee "$CACHE_FILE"
+# The branch name is authored by whoever made the repo, so it is escaped
+# before it joins the markup — see useful_escape. Escaping AFTER truncation
+# keeps the cell budget measured against what actually renders.
+printf " #[fg=%s]%s%s%s#[fg=default]" "$color" "$ICON" "$(useful_escape "$branch")" "$dirty" | tee "$CACHE_FILE"
 }
 
 # tmux calls this script directly via #(...); the driver sources it instead.

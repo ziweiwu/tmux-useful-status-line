@@ -246,3 +246,117 @@ run_system() {
     [[ "$output" == *"!mem 95%"* ]]
     [[ "$output" != *"~mem"* ]]
 }
+
+# ------------------------------------------------- hostile / broken sources
+#
+# Every one of these used to reach `[ x -ge y ]` or `$(( ))` raw, print "integer
+# expression expected" to a stderr tmux discards, and blank the whole segment.
+
+@test "a non-numeric threshold falls back instead of blanking the segment" {
+    export MOCK_LOADAVG="{ 7.0 7.0 7.0 }" MOCK_NCPU=8
+    export MOCK_MEM_FREE=50 MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_load_warn="seventy"
+    run_system
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cpu"* ]]     # 87% still crosses the default warn of 70
+}
+
+@test "a garbled memory reading suppresses the metric, it does not read as 100%" {
+    # Memory is the one metric derived by inversion, so "no answer" coerced to
+    # zero would surface as a 100%-used critical on every refresh.
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }" MOCK_NCPU=8 MOCK_DISK_PCT=10
+    export MOCK_MEM_FREE="not-a-number"
+    run_system
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"mem"* ]]
+    [[ "$output" != *"100%"* ]]
+}
+
+@test "a zero cpu count does not divide by zero" {
+    export MOCK_LOADAVG="{ 1.0 1.0 1.0 }" MOCK_NCPU=0
+    export MOCK_MEM_FREE=50 MOCK_DISK_PCT=10
+    run_system
+    [ "$status" -eq 0 ]
+}
+
+@test "a garbled disk reading is treated as healthy, not as critical" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }" MOCK_NCPU=8 MOCK_MEM_FREE=50
+    export MOCK_DISK_PCT="???"
+    run_system
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"disk"* ]]
+}
+
+@test "a negative load does not splice the glyph table into the cpu bar" {
+    # ${glyphs:$remaining:1} with remaining="-5" expands as ${glyphs:-5:1} —
+    # the default-value operator — and emitted the whole glyph string.
+    export MOCK_LOADAVG="{ -5.0 -5.0 -5.0 }" MOCK_NCPU=8
+    export MOCK_MEM_FREE=50 MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_cpu_style=bar MOCK_OPT_useful_system_show_when=all-always
+    run_system
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"▏▎▍"* ]]
+    [[ "$output" == *"░░░"* ]]
+}
+
+@test "an icon set to 'none' removes it without leaving a doubled space" {
+    export MOCK_LOADAVG="{ 0.1 0.1 0.1 }" MOCK_NCPU=8
+    export MOCK_MEM_FREE=50 MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_system_show_when=all-always
+    export MOCK_OPT_useful_icon_load=none MOCK_OPT_useful_icon_mem=none MOCK_OPT_useful_icon_disk=none
+    run_system
+    plain=$(printf "%s" "$output" | strip_format)
+    [[ "$plain" != *"cpu"* ]]
+    [[ "$plain" != *"  "* ]]
+}
+
+@test "an 'always' mode gives warn its own colour-free cue" {
+    # With healthy values rendered, dim-vs-warn is a difference of hue alone —
+    # invisible with deuteranopia, and gone entirely under --render=plain.
+    export MOCK_LOADAVG="{ 0.1 0 0 }" MOCK_NCPU=8 MOCK_DISK_PCT=10
+    export MOCK_OPT_useful_system_show_when=all-always
+
+    export MOCK_MEM_FREE=70          # 30% used: healthy
+    run_system
+    [[ "$(printf "%s" "$output" | strip_format)" == *"mem 30%"* ]]
+    [[ "$output" != *"~"* ]]
+    [[ "$output" != *"!"* ]]
+
+    export MOCK_MEM_FREE=20          # 80% used: warn
+    rm -f "$TMUX_USEFUL_CACHE_DIR/system"
+    run_system
+    [[ "$output" == *"~mem 80%"* ]]
+
+    export MOCK_MEM_FREE=2           # 98% used: crit
+    rm -f "$TMUX_USEFUL_CACHE_DIR/system"
+    run_system
+    [[ "$output" == *"!mem 98%"* ]]
+    [[ "$output" != *"!!"* ]]
+}
+
+@test "the default warn-and-crit mode is unchanged: healthy silent, crit '!'" {
+    # The warn cue must not leak into the mode where the segment's presence is
+    # already the colour-free signal.
+    export MOCK_LOADAVG="{ 0.1 0 0 }" MOCK_NCPU=8 MOCK_DISK_PCT=10
+    export MOCK_MEM_FREE=70
+    run_system
+    [ "$output" = "" ]
+
+    export MOCK_MEM_FREE=20
+    run_system
+    [[ "$output" == *"mem 80%"* ]]
+    [[ "$output" != *"~"* ]]
+
+    export MOCK_MEM_FREE=2
+    run_system
+    [[ "$output" == *"!mem 98%"* ]]
+    [[ "$output" != *"!!"* ]]
+}
+
+@test "@useful-warn-prefix still overrides the mode's default" {
+    export MOCK_LOADAVG="{ 0.1 0 0 }" MOCK_NCPU=8 MOCK_DISK_PCT=10 MOCK_MEM_FREE=20
+    export MOCK_OPT_useful_system_show_when=all-always
+    export MOCK_OPT_useful_warn_prefix=none
+    run_system
+    [[ "$output" != *"~mem"* ]]
+}

@@ -28,7 +28,7 @@ teardown() {
             *" $opt "*) ;;
             *) missing="$missing $opt" ;;
         esac
-    done < <(grep -rhoE 'get_tmux_option "(@[a-z0-9-]+)"' \
+    done < <(grep -rhoE "(get_tmux_option|useful_int_option|useful_icon_option) \"(@[a-z0-9-]+)\"" \
                   "$SCRIPTS_DIR"/*.sh "$PROJECT_ROOT"/bin/* \
              | sed -E 's/.*"(@[^"]+)".*/\1/' | sort -u)
     [ -z "$missing" ] || { echo "unregistered options:$missing" >&2; return 1; }
@@ -281,4 +281,20 @@ teardown() {
     [ "$useful_config_batch_ok" = "0" ]
     run get_tmux_option "@useful-pane-icon" "DEFAULT"
     [ "$output" = '#{@x}' ]
+}
+
+@test "the guarded-call counts the README quotes still match the code" {
+    # README's Driver section derives the worst-case refresh time from these
+    # counts (@useful-timeout-total plus ~1s per still-pending guarded call).
+    # A new useful_timeout call site silently invalidates that arithmetic, so
+    # the doc claim is pinned here rather than left to rot.
+    for spec in system:4 git:4 spotify:2 battery:1 weather:0; do
+        seg="${spec%%:*}"; want="${spec#*:}"
+        got=$(grep -c 'useful_timeout "' "$SCRIPTS_DIR/$seg.sh" || true)
+        # system.sh has both a Darwin and a Linux branch; only one runs per
+        # platform, so count the worst case rather than the literal total.
+        if [ "$seg" = system ]; then got=4; fi
+        [ "$got" -eq "$want" ] \
+            || { echo "$seg.sh has $got guarded calls, README says $want" >&2; return 1; }
+    done
 }

@@ -22,8 +22,11 @@ TRACK_CACHE="$CACHE_DIR_BASE/spotify-track"
 STATE_FILE="$CACHE_DIR_BASE/spotify-state"
 WATCHDOG_PID_FILE="$CACHE_DIR_BASE/spotify-watchdog.pid"
 
-MAX_LEN=$(get_tmux_option "@useful-spotify-max-len" 30)
-ICON=$(get_tmux_option "@useful-spotify-icon" "")
+MAX_LEN=$(useful_int_option "@useful-spotify-max-len" 30)
+# An icon set to "" is a supported way to ask for no icon. Carry the separating
+# space ON the icon so the empty case collapses cleanly instead of emitting the
+# doubled leading space that "%s %s" would produce.
+ICON=$(useful_icon_option "@useful-spotify-icon" "")
 SEPARATOR=$(get_tmux_option "@useful-spotify-separator" " · ")
 ACCENT=$(color_accent)
 SCROLL_ENABLED=$(get_tmux_option "@useful-spotify-scroll" "on")
@@ -32,8 +35,11 @@ SCROLL_ENABLED=$(get_tmux_option "@useful-spotify-scroll" "on")
 if [ -n "${REDUCED_MOTION:-}" ] || [ -n "${TMUX_USEFUL_REDUCED_MOTION:-}" ]; then
     SCROLL_ENABLED="off"
 fi
-DWELL=$(get_tmux_option "@useful-spotify-scroll-dwell" 2)
-SLIDE_DURATION=$(get_tmux_option "@useful-spotify-scroll-duration" 8)
+DWELL=$(useful_int_option "@useful-spotify-scroll-dwell" 2)
+SLIDE_DURATION=$(useful_int_option "@useful-spotify-scroll-duration" 8)
+# See @useful-timeout in helpers.sh. AppleScript blocks on an unresponsive
+# Spotify — including on the modal dialog it shows when it wants a login.
+TIMEOUT=$(useful_int_option "@useful-timeout" 3)
 
 # Tests inject TMUX_USEFUL_NOW to control elapsed time deterministically and
 # TMUX_USEFUL_NO_WATCHDOG=1 to suppress the background refresher.
@@ -54,12 +60,12 @@ fi
 unset track_cache_age
 
 if [ "$need_fetch" -eq 1 ]; then
-    if pgrep -x Spotify >/dev/null 2>&1; then
+    if useful_timeout "$TIMEOUT" pgrep -x Spotify >/dev/null 2>&1; then
         # Pass SEPARATOR as an argument (treated as data) instead of
         # interpolating into the AppleScript source — prevents injection
         # if the user's @useful-spotify-separator contains AppleScript
         # syntax like `" & (do shell script "...") & "`.
-        track=$(osascript - "$SEPARATOR" 2>/dev/null <<'EOF'
+        track=$(useful_timeout "$TIMEOUT" osascript - "$SEPARATOR" 2>/dev/null <<'EOF'
 on run argv
     set sep to item 1 of argv
     tell application "Spotify"
@@ -84,6 +90,14 @@ fi
 # of 31 characters occupies 53 cells: measured in characters it looks like it
 # overflows a 30-cell budget by one, so the slide would nudge a single glyph
 # while the bar ran 23 cells over.
+# Bound the title before any cell arithmetic touches it. A track name is
+# third-party metadata with no length limit behind it, and every measurement
+# below — the width, the slide offsets, the windows — is linear in its length.
+# USEFUL_MAX_CELLS is far wider than any status bar, so this changes nothing a
+# user could see; it only stops a pathological title from being measured.
+useful_truncate "$track" "$USEFUL_MAX_CELLS" ""
+track="$USEFUL_TRUNC"
+
 useful_display_width "$track"
 track_cells=$USEFUL_WIDTH
 
@@ -146,7 +160,11 @@ window_head() { useful_window "$track" 0 $(( MAX_LEN - 1 )); display="${USEFUL_W
 window_tail() { useful_window "$track" "$overflow" $(( MAX_LEN - 1 )); display="…$USEFUL_WINDOW"; }
 
 if [ "$track_cells" -le "$MAX_LEN" ]; then
-    display="$track"
+    # Routed through useful_window even though it fits, for the same reason
+    # useful_truncate is: the mark clamp lives there, and a title that MEASURES
+    # eleven cells can still be four hundred characters of stacked diacritics.
+    useful_window "$track" 0 "$MAX_LEN"
+    display="$USEFUL_WINDOW"
 elif [ "$SCROLL_ENABLED" != "on" ]; then
     window_head
 elif [ "$elapsed" -lt "$DWELL" ]; then
@@ -171,7 +189,9 @@ else
     window_head
 fi
 
-printf " #[fg=%s]%s %s#[fg=default]" "$ACCENT" "$ICON" "$display"
+# Track and artist are third-party metadata — anyone who can name a playlist
+# entry can put "#[bg=red]" in it. Escaped for the same reason as git.sh.
+printf " #[fg=%s]%s%s#[fg=default]" "$ACCENT" "$ICON" "$(useful_escape "$display")"
 }
 
 # tmux calls this script directly via #(...); the driver sources it instead.

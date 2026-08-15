@@ -108,3 +108,55 @@ run_weather() {
     run_weather
     [[ "$output" == *"~"* ]]
 }
+
+@test "a failed fetch is rate-limited instead of retried every refresh" {
+    # Nothing was written on failure, so needs_refresh stayed 1 forever and
+    # every status tick paid for another blocking network call.
+    export MOCK_CURL_OUTPUT=""
+    run_weather
+    [ -f "$TMUX_USEFUL_CACHE_DIR/.weather-"*".try" ]
+}
+
+@test "the retry marker does not masquerade as cached weather data" {
+    export MOCK_CURL_OUTPUT=""
+    run_weather
+    run bash -c 'ls "$1"/weather-* 2>/dev/null | wc -l' _ "$TMUX_USEFUL_CACHE_DIR"
+    [ "$(echo "$output" | tr -d ' ')" = "0" ]
+}
+
+@test "a successful fetch still refreshes on schedule" {
+    export MOCK_CURL_OUTPUT="☀️ First"
+    run_weather
+    [[ "$output" == *"First"* ]]
+    export MOCK_CURL_OUTPUT="🌧 Second"
+    cache_file=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-*)
+    touch_ago "$cache_file" 2000
+    rm -f "$TMUX_USEFUL_CACHE_DIR"/.weather-*.try
+    run_weather
+    [[ "$output" == *"Second"* ]]
+}
+
+@test "an oversized response is truncated to the cell budget" {
+    export MOCK_CURL_OUTPUT="$(printf 'X%.0s' $(seq 1 2000))"
+    run_weather
+    [ "$status" -eq 0 ]
+    plain=$(printf "%s" "$output" | strip_format)
+    [ "${#plain}" -lt 40 ]
+}
+
+@test "@useful-weather-max-len controls the budget" {
+    export MOCK_CURL_OUTPUT="abcdefghijklmnopqrstuvwxyz"
+    export MOCK_OPT_useful_weather_max_len=8
+    run_weather
+    plain=$(printf "%s" "$output" | strip_format)
+    # one leading space + 8 cells
+    [ "${#plain}" -le 9 ]
+}
+
+@test "tmux format syntax in a wttr.in response is escaped" {
+    # The response is network-controlled: a captive portal or a compromised
+    # endpoint could otherwise repaint the whole status bar.
+    export MOCK_CURL_OUTPUT='#[bg=red]HACK'
+    run_weather
+    [[ "$output" == *'##[bg=red]'* ]]
+}

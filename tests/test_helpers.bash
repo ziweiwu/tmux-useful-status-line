@@ -17,6 +17,13 @@ setup_test_env() {
     export TMUX_USEFUL_OS_OVERRIDE="${TMUX_USEFUL_OS_OVERRIDE:-Darwin}"
     # Clear any MOCK_* leftover from a prior test in same shell.
     while IFS= read -r v; do unset "$v"; done < <(env | awk -F= '/^MOCK_/ {print $1}')
+    # Terminal-injected appearance hints must not leak in from the developer's
+    # shell. rxvt/konsole (and anything that apes them) export COLORFGBG, which
+    # would flip @useful-theme auto-detection and fail the dark-variant test on
+    # that machine only. Tests that want a hint export it themselves.
+    unset COLORFGBG
+    # Likewise NO_COLOR: it changes bin/useful-status's default render mode.
+    unset NO_COLOR
 }
 
 teardown_test_env() {
