@@ -288,7 +288,7 @@ teardown() {
     # counts (@useful-timeout-total plus ~1s per still-pending guarded call).
     # A new useful_timeout call site silently invalidates that arithmetic, so
     # the doc claim is pinned here rather than left to rot.
-    for spec in system:4 git:4 spotify:2 battery:1 weather:0; do
+    for spec in system:4 git:4 spotify:2 battery:1 weather:1; do
         seg="${spec%%:*}"; want="${spec#*:}"
         got=$(grep -c 'useful_timeout "' "$SCRIPTS_DIR/$seg.sh" || true)
         # system.sh has both a Darwin and a Linux branch; only one runs per

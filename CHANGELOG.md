@@ -6,6 +6,68 @@ follows [Semantic Versioning](https://semver.org/) starting at v0.1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@useful-cache-dir` was honoured but never created.** Only the derived
+  default path ever reached `mkdir`, so pointing the option at a directory that
+  did not exist yet disabled every segment's cache — silently, because `tee`
+  writes its error to a stderr tmux discards. The visible cost was `weather`
+  making a blocking network call on *every* status refresh, since it could not
+  write the rate-limit stamp that exists to prevent exactly that. The directory
+  is now created for all three branches, with mode 700, and a directory that
+  turns out not to be owned by us is refused rather than trusted — the derived
+  name is predictable, so on a shared `/tmp` it is otherwise a directory
+  another user can write the status line through.
+- **Wide glyphs below U+1F300 were measured as one cell.** `⌚ ⚡ ⭐ ⛅ ⛈`, the
+  enclosed-CJK block `🈁 🈚 🉐`, and the Yijing hexagrams in the gap between the
+  kana and CJK ranges are all drawn in two columns with no U+FE0F to ask for
+  it, and the variation-selector promotion was doing all the work. This is the
+  unsafe direction: it overflows the budget `useful_truncate` exists to
+  guarantee. wttr.in's `%c` — this project's **default** `@useful-weather-format`
+  — emits bare `U+26C5`, so an 8-cell weather budget rendered 13 columns. The
+  table is now checked against the full Unicode East_Asian_Width data; no
+  undercounts remain.
+- **The weather response was bounded at render, not at ingest.** `USEFUL_MAX_CELLS`
+  caps what is displayed; the raw body went into the cache verbatim and was
+  re-read on every refresh for the whole `@useful-weather-refresh` window.
+  Measured with the captive-portal splash these caps exist for: a 2MB body cost
+  0.30s of CPU per status tick, an 8MB body 1.07s. Now capped with
+  `--max-filesize` and `head -c`, and the `curl` call is guarded by
+  `useful_timeout` like every other external command — `--max-time` is curl's
+  own knob and counted against neither `@useful-timeout` nor the whole-run
+  budget.
+- **A `|` in a Spotify track title froze the slide.** The state file was written
+  track-first, and `read -r a b` gives the last variable the whole remainder, so
+  `"Glory Box | Live"` split across both fields. The stored title never matched
+  the current one, so the track-change branch fired on every refresh: the slide
+  stayed pinned to its first frame for the life of the track, and the watchdog
+  was killed and respawned once per tick instead of once per track. The
+  timestamp is now written first, where a `|` cannot reach it.
+- **The Spotify watchdog could signal an unrelated process.** The guard on the
+  stored PID was `*bash*|*sh*|*sleep*`, which matches `zsh`, `fish`, `dash`,
+  `ssh` and `sshd`, and nothing ever removed the PID file — so once the OS
+  recycled that PID, a track change would SIGTERM whatever now held it. The
+  guard is now the PID file's own age against the watchdog's maximum lifetime,
+  and the file is removed once read.
+- **A missing `shasum` collapsed every cache key onto one entry.** musl distros
+  ship `sha1sum`, not `shasum`, and the bare `| shasum | cut` then produced an
+  empty key — not a degraded key but a colliding one. Every repo shared the
+  single `git-` entry, so switching panes between two repos showed the wrong
+  branch for the whole TTL, and every `@useful-weather-location` shared one
+  entry. Now falls back through `sha1sum` to `cksum`.
+- **A planted cache entry reached the bar verbatim.** `cache_check` sanitised
+  the bytes but not the markup, so a file containing `#[bg=red]` repainted the
+  status line — a background block this project bans outright. Entries carrying
+  any markup other than the `#[fg=...]` this repo writes are now recomputed.
+- **A malformed hex colour wrote a bash error to stderr.** `@useful-color-ok
+  "#gggggg"` matched the six-character pattern and reached `$((16#gg))`. The
+  pattern now matches hex digits.
+- **`--segments=git,git` rendered the segment twice.** Repeats are dropped
+  during validation.
+- **The stale weather marker was lost when `stat` failed.** `$(( now - $(file_mtime f) ))`
+  leaves the variable unset on an empty operand; both call sites now guard it
+  the way `cache_check` already did.
+
 ## [0.3.0] — 2026-08-15
 
 ### Added

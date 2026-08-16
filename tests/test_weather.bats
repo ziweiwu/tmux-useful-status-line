@@ -160,3 +160,55 @@ run_weather() {
     run_weather
     [[ "$output" == *'##[bg=red]'* ]]
 }
+
+@test "an oversized response body is bounded before it is cached" {
+    # USEFUL_MAX_CELLS bounds what is DISPLAYED; it was mistaken for a bound on
+    # what is STORED. The raw body went into the cache verbatim and was re-read
+    # on every refresh for the whole REFRESH_SEC -- measured at 0.30s of CPU per
+    # tick for a 2MB captive-portal splash, 1.07s for 8MB.
+    export MOCK_CURL_OUTPUT="$(printf 'X%.0s' $(seq 1 60000))"
+    run_weather
+    cache=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-* 2>/dev/null | head -1)
+    [ -n "$cache" ]
+    [ "$(wc -c <"$cache")" -le 8200 ]
+}
+
+@test "the stale marker survives an unreadable mtime" {
+    # `$(( now - $(file_mtime f) ))` inlined leaves the variable UNSET when the
+    # stat fails, so the comparison silently dropped the "~".
+    export MOCK_CURL_OUTPUT="☀️ 20°C"
+    run_weather
+    cache=$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-* 2>/dev/null | head -1)
+    [ -n "$cache" ]
+    stub="$TMUX_USEFUL_CACHE_DIR/nostat"
+    mkdir -p "$stub"
+    printf '#!/bin/sh\nexit 1\n' >"$stub/stat"
+    chmod +x "$stub/stat"
+    export MOCK_CURL_OUTPUT=""
+    run env PATH="$stub:$PATH" "$SCRIPTS_DIR/weather.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"~"* ]]
+}
+
+@test "curl runs under useful_timeout, not just its own --max-time" {
+    # --max-time is curl's knob: it neither honours @useful-timeout nor counts
+    # against the whole-run @useful-timeout-total ceiling.
+    grep -q 'useful_timeout "\$TIMEOUT" curl' "$SCRIPTS_DIR/weather.sh"
+}
+
+@test "each location keeps its own cache entry without shasum on PATH" {
+    # An empty cache key is a COLLIDING key: every location shared one entry.
+    stub="$TMUX_USEFUL_CACHE_DIR/nohash"
+    mkdir -p "$stub"
+    for c in shasum sha1sum cksum; do
+        printf '#!/bin/sh\nexit 127\n' >"$stub/$c"
+        chmod +x "$stub/$c"
+    done
+    export MOCK_CURL_OUTPUT="☀️ Tokyo"
+    MOCK_OPT_useful_weather_location=Tokyo \
+        run env PATH="$stub:$PATH" "$SCRIPTS_DIR/weather.sh"
+    export MOCK_CURL_OUTPUT="🌧 London"
+    MOCK_OPT_useful_weather_location=London \
+        run env PATH="$stub:$PATH" "$SCRIPTS_DIR/weather.sh"
+    [ "$(ls "$TMUX_USEFUL_CACHE_DIR"/weather-* 2>/dev/null | wc -l)" -eq 2 ]
+}

@@ -80,7 +80,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1000
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
     [[ "$output" != *"…Lorem"* ]]
@@ -91,7 +91,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1011
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"adipiscing"* ]]
     [[ "$output" == *"…"* ]]
@@ -103,7 +103,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     # t=6: 4s into slide (out of 8s) → offset ≈ overflow/2 ≈ 17
     export TMUX_USEFUL_NOW=1006
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"…"*"…"* ]]
     [[ "$output" != *"Lorem ipsum"* ]]
@@ -115,7 +115,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1100
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -128,12 +128,12 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=2000
     # Pre-existing state for a different (long-since-settled) track.
-    printf "OLD · TRACK|100" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "100|OLD · TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     # New track: t=0 of cycle → dwell-start truncated view.
     [[ "$output" == *"Lorem ipsum do…"* ]]
     # State file should now contain the new track + cycle_start=NOW.
-    grep -q "^${LONG_TRACK}|2000$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    grep -q "^2000|${LONG_TRACK}$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
 }
 
 @test "scroll disabled keeps truncated start regardless of elapsed time" {
@@ -142,7 +142,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export MOCK_OPT_useful_spotify_scroll=off
     export TMUX_USEFUL_NOW=1006
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -173,7 +173,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export TMUX_USEFUL_NOW=1200
     run_spotify
     # State's cycle_start should still be 1000 (not 1200).
-    grep -q "^${LONG_TRACK}|1000$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    grep -q "^1000|${LONG_TRACK}$" "$TMUX_USEFUL_CACHE_DIR/spotify-state"
     # Display should be settled, not in slide phase.
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -184,7 +184,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1006
     export REDUCED_MOTION=1
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     # Should be settled-truncated regardless of elapsed time in slide window.
     [[ "$output" == *"Lorem ipsum do…"* ]]
@@ -196,7 +196,7 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     export MOCK_OPT_useful_spotify_max_len=15
     export TMUX_USEFUL_NOW=1006
     export TMUX_USEFUL_REDUCED_MOTION=1
-    printf "%s|1000" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    printf "1000|%s" "$LONG_TRACK" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
     run_spotify
     [[ "$output" == *"Lorem ipsum do…"* ]]
 }
@@ -229,4 +229,95 @@ LONG_TRACK="Lorem ipsum dolor sit amet consectetur adipiscing"
     run_spotify
     # Output should be the full track, no ellipsis anywhere.
     [[ "$output" != *"…"* ]]
+}
+
+# ------------------------------------------------- state file round-trip
+
+PIPE_TRACK="Portishead · Glory Box | Live at Roseland Ballroom"
+
+@test "a track title containing a pipe still advances the slide" {
+    # `read -r a b` gives the LAST variable the whole remainder, delimiters
+    # included. With the track written first, "Glory Box | Live" split across
+    # both fields, prev_track never matched, and the change branch fired on
+    # EVERY refresh -- pinning the slide to frame 0 for the life of the track.
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$PIPE_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    export TMUX_USEFUL_NOW=1000
+    run_spotify
+    head_frame="$output"
+
+    export TMUX_USEFUL_NOW=1006
+    rm -f "$TMUX_USEFUL_CACHE_DIR/spotify-track"
+    run_spotify
+    [ "$output" != "$head_frame" ]
+    [[ "$output" == *"…"* ]]
+}
+
+@test "a pipe in the title does not reset the cycle clock every tick" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$PIPE_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    export TMUX_USEFUL_NOW=1000
+    run_spotify
+    first=$(cat "$TMUX_USEFUL_CACHE_DIR/spotify-state")
+
+    export TMUX_USEFUL_NOW=1007
+    rm -f "$TMUX_USEFUL_CACHE_DIR/spotify-track"
+    run_spotify
+    [ "$(cat "$TMUX_USEFUL_CACHE_DIR/spotify-state")" = "$first" ]
+    [[ "$first" == "1000|"* ]]
+}
+
+@test "a corrupt state file falls back to the current cycle" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    export TMUX_USEFUL_NOW=1000
+    printf "not-a-timestamp|whatever" >"$TMUX_USEFUL_CACHE_DIR/spotify-state"
+    run_spotify
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$TMUX_USEFUL_CACHE_DIR/spotify-state")" == "1000|"* ]]
+}
+
+# ------------------------------------------------------- watchdog PID guard
+
+@test "a stale watchdog PID is not signalled" {
+    # The old guard was `case $comm in *bash*|*sh*|*sleep*)`, which matches
+    # zsh, fish, dash, ssh and sshd. Nothing ever removed the PID file, so once
+    # the OS recycled that PID we would SIGTERM an unrelated process.
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    unset TMUX_USEFUL_NO_WATCHDOG
+
+    # A live bystander whose name the old guard would have matched.
+    sleep 30 &
+    victim=$!
+    echo "$victim" >"$TMUX_USEFUL_CACHE_DIR/spotify-watchdog.pid"
+    touch_ago "$TMUX_USEFUL_CACHE_DIR/spotify-watchdog.pid" 600
+
+    run_spotify
+    kill -0 "$victim" 2>/dev/null || { echo "bystander was killed" >&2; kill "$victim" 2>/dev/null; return 1; }
+    kill "$victim" 2>/dev/null
+    wait "$victim" 2>/dev/null || true
+}
+
+@test "a fresh watchdog PID is still reaped on a track change" {
+    export MOCK_SPOTIFY_RUNNING=1
+    export MOCK_SPOTIFY_TRACK="$LONG_TRACK"
+    export MOCK_OPT_useful_spotify_max_len=15
+    unset TMUX_USEFUL_NO_WATCHDOG
+
+    sleep 30 &
+    old=$!
+    echo "$old" >"$TMUX_USEFUL_CACHE_DIR/spotify-watchdog.pid"
+
+    run_spotify
+    sleep 1
+    if kill -0 "$old" 2>/dev/null; then
+        kill "$old" 2>/dev/null
+        echo "stale watchdog was not reaped" >&2
+        return 1
+    fi
 }

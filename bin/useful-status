@@ -99,12 +99,21 @@ esac
 [ -z "$segments" ] && segments=$(get_tmux_option "@useful-segments" "$ALL_SEGMENTS")
 segments="${segments//,/ }"
 
+# Validate, and drop repeats while we are here: --segments=git,git used to
+# source the file twice and render the segment twice. Building the checked list
+# rather than checking in place is what makes the dedupe free.
+checked=""
 for seg in $segments; do
     case " $ALL_SEGMENTS " in
         *" $seg "*) ;;
         *) printf "useful-status: unknown segment '%s'\n" "$seg" >&2; exit 2 ;;
     esac
+    case " $checked " in
+        *" $seg "*) continue ;;
+    esac
+    checked="$checked $seg"
 done
+segments="$checked"
 
 # Source only the segments actually requested. Each file defines
 # useful_segment_<name> and, because it is sourced rather than executed, skips

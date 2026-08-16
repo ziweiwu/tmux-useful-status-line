@@ -31,6 +31,31 @@ file_mtime() {
     esac
 }
 
+# Short stable digest of $1, for cache keys.
+#
+# `shasum` is a perl script, not a coreutils binary: musl distros (Alpine,
+# anything on busybox) ship `sha1sum` instead, and a Debian without perl ships
+# neither. When the call failed, the old inline `| shasum | cut` produced an
+# EMPTY key — and an empty key is not a degraded key, it is a COLLIDING one:
+# every repo shared the single cache file "git-", so switching panes between
+# two repos showed the wrong branch for the whole TTL, and every
+# @useful-weather-location shared one "weather-" entry.
+#
+# Falls back through sha1sum to cksum (POSIX, present everywhere), and finally
+# to the input itself with path separators flattened — long and ugly, but
+# still unique, which is the only property a cache key owes us.
+useful_hash() {
+    local s="$1" out
+    out=$(printf "%s" "$s" | { shasum 2>/dev/null || sha1sum 2>/dev/null || cksum 2>/dev/null; } | cut -c1-8)
+    case "$out" in
+        ''|*[!0-9a-fA-F]*)
+            out="${s//\//_}"
+            out="${out//[^A-Za-z0-9_.-]/_}"
+            ;;
+    esac
+    printf "%s" "$out"
+}
+
 # OS detection. Tests can override with TMUX_USEFUL_OS_OVERRIDE to exercise
 # Linux code paths on a macOS CI runner.
 useful_os() {
@@ -458,7 +483,7 @@ cache_check() {
     #
     # $(<file) rather than `cat`: a builtin read, one fork fewer on the path
     # taken by every warm refresh.
-    local content
+    local content probe
     content=$(<"$file")
     # An entry far longer than any status line could be is corrupt, not cached.
     # Recompute rather than paste it into the bar. ${#} is a builtin, so this
@@ -466,6 +491,21 @@ cache_check() {
     # characters, which are counted here in bytes.
     [ "${#content}" -gt $(( USEFUL_MAX_CELLS * 4 )) ] && return 1
     content="${content//[[:cntrl:]]/ }"
+    # The only markup this repo ever writes to a cache entry is "#[fg=...]".
+    # Anything else in there did not come from us: a background block (banned
+    # outright by AGENTS.md, and able to repaint the whole bar), or a "#{...}"
+    # that tmux expands as a format. Sanitising the BYTES above is not enough,
+    # because the danger is the markup, and cache contents are emitted verbatim
+    # -- escaping them is not an option, since our own tokens must survive.
+    # Recompute instead of pasting an entry we cannot account for.
+    #
+    # Removing our own token first is what makes the test a one-liner: what
+    # remains of a well-formed entry has no "#[" left. A "##[" from
+    # useful_escape survives correctly, leaving a bare "#" and no "#[".
+    probe="${content//'#[fg='/}"
+    case "$probe" in
+        *'#['*|*'#{'*) return 1 ;;
+    esac
     case "$content" in
         *'#[fg='*)
             case "$content" in
@@ -537,28 +577,58 @@ useful_resolve_theme() {
     esac
 }
 
+# Only set when the directory we resolved turned out not to be ours; see below.
+# Memoized so the hostile path does not leak a new temp dir per call.
+USEFUL_CACHE_DIR_FALLBACK=""
+
 # Cache directory: namespaced per UID so multi-user hosts don't collide, and
 # per tmux socket so multiple servers on the same host can't stomp each other.
 useful_cache_dir() {
-    local override
+    local dir override
     override=$(get_tmux_option "@useful-cache-dir" "")
     if [ -n "$override" ]; then
-        printf "%s" "$override"
-        return
+        dir="$override"
+    elif [ -n "${TMUX_USEFUL_CACHE_DIR:-}" ]; then
+        dir="$TMUX_USEFUL_CACHE_DIR"
+    else
+        local base="${TMPDIR:-/tmp}"
+        # Strip trailing slash for predictable concatenation.
+        base="${base%/}"
+        local socket_id=""
+        if [ -n "${TMUX:-}" ]; then
+            socket_id=$(useful_hash "${TMUX%%,*}")
+        fi
+        dir="$base/tmux-useful-${UID:-$(id -u)}-${socket_id:-default}"
     fi
-    if [ -n "${TMUX_USEFUL_CACHE_DIR:-}" ]; then
-        printf "%s" "$TMUX_USEFUL_CACHE_DIR"
-        return
+
+    # Create it for EVERY branch, not just the derived one. @useful-cache-dir
+    # pointing at a directory that did not exist yet used to disable caching
+    # outright and silently: `tee` failed to a stderr tmux discards, so the
+    # segments still rendered while every cache write was lost. The visible
+    # cost was weather.sh making a blocking network call on every single status
+    # refresh, because its rate-limit stamp could not be written either.
+    #
+    # -m 700 rather than the umask default: the derived name is entirely
+    # predictable, so on a shared /tmp this must not be a directory another
+    # user can write into.
+    # shellcheck disable=SC2174  # -m applying only to the deepest directory is
+    # exactly what we want: the parents are ordinary paths like /tmp or $HOME,
+    # whose modes are not ours to set. It is the leaf we must not share.
+    mkdir -m 700 -p "$dir" 2>/dev/null
+
+    # mkdir succeeds on a directory that already exists whoever owns it, so
+    # having created it is not proof that it is ours. That matters because a
+    # cache entry is markup pasted straight into the status line: a directory
+    # somebody else can write is a directory that can write the status line.
+    # Prefer a private temp dir over trusting it. Caching then lasts one
+    # process instead of persisting, which is the right trade when the
+    # alternative is honouring a planted entry.
+    if [ ! -d "$dir" ] || [ ! -O "$dir" ]; then
+        if [ -z "$USEFUL_CACHE_DIR_FALLBACK" ]; then
+            USEFUL_CACHE_DIR_FALLBACK=$(mktemp -d 2>/dev/null) || USEFUL_CACHE_DIR_FALLBACK=""
+        fi
+        dir="$USEFUL_CACHE_DIR_FALLBACK"
     fi
-    local base="${TMPDIR:-/tmp}"
-    # Strip trailing slash for predictable concatenation.
-    base="${base%/}"
-    local socket_id=""
-    if [ -n "${TMUX:-}" ]; then
-        socket_id=$(printf "%s" "${TMUX%%,*}" | shasum 2>/dev/null | cut -c1-8)
-    fi
-    local dir="$base/tmux-useful-${UID:-$(id -u)}-${socket_id:-default}"
-    mkdir -p "$dir" 2>/dev/null
     printf "%s" "$dir"
 }
 
@@ -690,11 +760,15 @@ useful_cp_width() {
     local cp="$1"
     if   [ "$cp" -lt 768 ];                              then USEFUL_CW=1  # ASCII + Latin-1 fast path
     elif [ "$cp" -ge 768 ]    && [ "$cp" -le 879 ];      then USEFUL_CW=0  # U+0300-036F combining
-    elif [ "$cp" -eq 8205 ];                             then USEFUL_CW=0  # U+200D ZWJ
+    elif [ "$cp" -ge 6832 ]   && [ "$cp" -le 6911 ];     then USEFUL_CW=0  # U+1AB0-1AFF combining ext
+    elif [ "$cp" -ge 7616 ]   && [ "$cp" -le 7679 ];     then USEFUL_CW=0  # U+1DC0-1DFF combining supp
+    elif [ "$cp" -ge 8203 ]   && [ "$cp" -le 8205 ];     then USEFUL_CW=0  # U+200B-200D ZWSP/ZWNJ/ZWJ
+    elif [ "$cp" -ge 8400 ]   && [ "$cp" -le 8432 ];     then USEFUL_CW=0  # U+20D0-20F0 marks for symbols
+    elif [ "$cp" -ge 65056 ]  && [ "$cp" -le 65071 ];    then USEFUL_CW=0  # U+FE20-FE2F combining half marks
     elif [ "$cp" -ge 65024 ]  && [ "$cp" -le 65039 ];    then USEFUL_CW=0  # U+FE00-FE0F variation selectors
     elif [ "$cp" -ge 4352 ]   && [ "$cp" -le 4447 ];     then USEFUL_CW=2  # U+1100-115F Hangul Jamo
     elif [ "$cp" -ge 11904 ]  && [ "$cp" -le 12350 ];    then USEFUL_CW=2  # U+2E80-303E CJK radicals/symbols
-    elif [ "$cp" -ge 12353 ]  && [ "$cp" -le 19903 ];    then USEFUL_CW=2  # U+3041-4DBF kana .. CJK ext A
+    elif [ "$cp" -ge 12353 ]  && [ "$cp" -le 19967 ];    then USEFUL_CW=2  # U+3041-4DFF kana .. Yijing
     elif [ "$cp" -ge 19968 ]  && [ "$cp" -le 42191 ];    then USEFUL_CW=2  # U+4E00-A4CF CJK unified + Yi
     elif [ "$cp" -ge 43360 ]  && [ "$cp" -le 43391 ];    then USEFUL_CW=2  # U+A960-A97F Hangul Jamo ext-A
     elif [ "$cp" -ge 44032 ]  && [ "$cp" -le 55203 ];    then USEFUL_CW=2  # U+AC00-D7A3 Hangul syllables
@@ -704,6 +778,57 @@ useful_cp_width() {
     elif [ "$cp" -ge 65280 ]  && [ "$cp" -le 65376 ];    then USEFUL_CW=2  # U+FF00-FF60 fullwidth
     elif [ "$cp" -ge 65504 ]  && [ "$cp" -le 65510 ];    then USEFUL_CW=2  # U+FFE0-FFE6 fullwidth signs
     elif [ "$cp" -ge 127744 ] && [ "$cp" -le 983039 ];   then USEFUL_CW=2  # U+1F300-EFFFF emoji + astral CJK
+    # Wide glyphs in the astral planes that sit BELOW U+1F300. Listed one range
+    # at a time rather than lowering the floor to U+1F000: the mahjong, playing
+    # card and enclosed-alphanumeric blocks in between are mostly narrow, and
+    # widening them wholesale would truncate strings that fit. Over-counting is
+    # the safe direction, but it is still wrong.
+    elif [ "$cp" -eq 126980 ] || [ "$cp" -eq 127183 ];   then USEFUL_CW=2  # U+1F004 mahjong, U+1F0CF joker
+    elif [ "$cp" -eq 127374 ];                           then USEFUL_CW=2  # U+1F18E AB button
+    elif [ "$cp" -ge 127377 ] && [ "$cp" -le 127386 ];   then USEFUL_CW=2  # U+1F191-1F19A CL..VS buttons
+    elif [ "$cp" -ge 127488 ] && [ "$cp" -le 127490 ];   then USEFUL_CW=2  # U+1F200-1F202 squared kana
+    elif [ "$cp" -ge 127504 ] && [ "$cp" -le 127547 ];   then USEFUL_CW=2  # U+1F210-1F23B squared CJK
+    elif [ "$cp" -ge 127552 ] && [ "$cp" -le 127560 ];   then USEFUL_CW=2  # U+1F240-1F248 tortoise-shell CJK
+    elif [ "$cp" -ge 127568 ] && [ "$cp" -le 127569 ];   then USEFUL_CW=2  # U+1F250-1F251 circled CJK
+    # Wide glyphs that live BELOW the astral emoji block. These are
+    # Emoji_Presentation=Yes / East_Asian_Width=Wide, so a terminal draws them
+    # in two cells with no U+FE0F to ask for it — and the FE0F promotion above
+    # is what used to be doing all the work here. Undercounting is the unsafe
+    # direction: it overflows the very budget useful_truncate exists to
+    # guarantee. wttr.in's %c — this project's DEFAULT @useful-weather-format —
+    # emits bare U+26C5 and U+26C8, so an 8-cell budget rendered 13 columns.
+    elif [ "$cp" -ge 8986 ]   && [ "$cp" -le 8987 ];     then USEFUL_CW=2  # U+231A-231B watch, hourglass
+    elif [ "$cp" -ge 9193 ]   && [ "$cp" -le 9196 ];     then USEFUL_CW=2  # U+23E9-23EC fast-forward
+    elif [ "$cp" -eq 9200 ] || [ "$cp" -eq 9203 ];       then USEFUL_CW=2  # U+23F0 alarm, U+23F3 hourglass
+    elif [ "$cp" -ge 9725 ]   && [ "$cp" -le 9726 ];     then USEFUL_CW=2  # U+25FD-25FE medium squares
+    elif [ "$cp" -ge 9748 ]   && [ "$cp" -le 9749 ];     then USEFUL_CW=2  # U+2614-2615 umbrella, coffee
+    elif [ "$cp" -ge 9800 ]   && [ "$cp" -le 9811 ];     then USEFUL_CW=2  # U+2648-2653 zodiac
+    elif [ "$cp" -eq 9855 ] || [ "$cp" -eq 9875 ];       then USEFUL_CW=2  # U+267F wheelchair, U+2693 anchor
+    elif [ "$cp" -eq 9889 ];                             then USEFUL_CW=2  # U+26A1 high voltage
+    elif [ "$cp" -ge 9898 ]   && [ "$cp" -le 9899 ];     then USEFUL_CW=2  # U+26AA-26AB circles
+    elif [ "$cp" -ge 9917 ]   && [ "$cp" -le 9918 ];     then USEFUL_CW=2  # U+26BD-26BE soccer, baseball
+    elif [ "$cp" -ge 9924 ]   && [ "$cp" -le 9925 ];     then USEFUL_CW=2  # U+26C4-26C5 snowman, sun-behind-cloud
+    elif [ "$cp" -eq 9928 ] || [ "$cp" -eq 9934 ];       then USEFUL_CW=2  # U+26C8 thunder cloud, U+26CE Ophiuchus
+    elif [ "$cp" -eq 9940 ] || [ "$cp" -eq 9962 ];       then USEFUL_CW=2  # U+26D4 no entry, U+26EA church
+    elif [ "$cp" -ge 9970 ]   && [ "$cp" -le 9971 ];     then USEFUL_CW=2  # U+26F2-26F3 fountain, golf
+    elif [ "$cp" -eq 9973 ] || [ "$cp" -eq 9978 ];       then USEFUL_CW=2  # U+26F5 sailboat, U+26FA tent
+    elif [ "$cp" -eq 9981 ] || [ "$cp" -eq 9989 ];       then USEFUL_CW=2  # U+26FD fuel, U+2705 check mark
+    elif [ "$cp" -ge 9994 ]   && [ "$cp" -le 9995 ];     then USEFUL_CW=2  # U+270A-270B raised fist/hand
+    elif [ "$cp" -eq 10024 ] || [ "$cp" -eq 10060 ];     then USEFUL_CW=2  # U+2728 sparkles, U+274C cross mark
+    elif [ "$cp" -eq 10062 ];                            then USEFUL_CW=2  # U+274E cross mark button
+    elif [ "$cp" -ge 10067 ]  && [ "$cp" -le 10069 ];    then USEFUL_CW=2  # U+2753-2755 question marks
+    elif [ "$cp" -eq 10071 ];                            then USEFUL_CW=2  # U+2757 exclamation mark
+    elif [ "$cp" -ge 10133 ]  && [ "$cp" -le 10135 ];    then USEFUL_CW=2  # U+2795-2797 plus, minus, divide
+    elif [ "$cp" -eq 10160 ] || [ "$cp" -eq 10175 ];     then USEFUL_CW=2  # U+27B0 curly loop, U+27BF double loop
+    elif [ "$cp" -ge 11035 ]  && [ "$cp" -le 11036 ];    then USEFUL_CW=2  # U+2B1B-2B1C large squares
+    elif [ "$cp" -eq 11088 ] || [ "$cp" -eq 11093 ];     then USEFUL_CW=2  # U+2B50 star, U+2B55 hollow circle
+    elif [ "$cp" -ge 9001 ]   && [ "$cp" -le 9002 ];     then USEFUL_CW=2  # U+2329-232A angle brackets
+    elif [ "$cp" -ge 9776 ]   && [ "$cp" -le 9783 ];     then USEFUL_CW=2  # U+2630-2637 trigrams
+    elif [ "$cp" -ge 9866 ]   && [ "$cp" -le 9871 ];     then USEFUL_CW=2  # U+268A-268F mono/digrams
+    elif [ "$cp" -ge 94176 ]  && [ "$cp" -le 101640 ];   then USEFUL_CW=2  # U+16FE0-18D08 Tangut/Khitan/Nushu
+    elif [ "$cp" -ge 110576 ] && [ "$cp" -le 111355 ];   then USEFUL_CW=2  # U+1AFF0-1B2FB kana extensions
+    elif [ "$cp" -ge 119552 ] && [ "$cp" -le 119670 ];   then USEFUL_CW=2  # U+1D300-1D376 Tai Xuan Jing
+    elif [ "$cp" -ge 127584 ] && [ "$cp" -le 127589 ];   then USEFUL_CW=2  # U+1F260-1F265 rounded symbols
     else                                                      USEFUL_CW=1
     fi
     # Deliberately NOT wide: U+2580-259F block elements (the CPU bar glyphs),
@@ -908,7 +1033,11 @@ useful_ansi_attr() {
     ANSI=""
     case "$attr" in
         fg=default) ANSI=$'\033[39m' ;;
-        fg=#??????)
+        # Each position is a hex digit, not any character. `fg=#??????` also
+        # matched "#gggggg" — a plausible typo in @useful-color-* — and then
+        # $((16#gg)) failed the assignment with "value too great for base" on
+        # a stderr the user may well be watching.
+        fg=#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
             hex="${attr#fg=#}"
             ANSI=$'\033'"[38;2;$((16#${hex:0:2}));$((16#${hex:2:2}));$((16#${hex:4:2}))m"
             ;;

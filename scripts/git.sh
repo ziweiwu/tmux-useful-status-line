@@ -23,7 +23,11 @@ cwd="$(useful_pane_path)"
 [ -z "$cwd" ] && cwd="$PWD"
 
 # Cache key: hash the cwd so each repo has its own short-TTL cache.
-cwd_hash=$(printf "%s" "$cwd" | shasum 2>/dev/null | cut -c1-8)
+# useful_hash, not a bare `| shasum |`: where shasum is missing (musl/busybox
+# ship sha1sum instead) that produced an EMPTY key, so every repo shared the
+# single cache file "git-" and switching panes between two repos showed the
+# wrong branch for the whole TTL.
+cwd_hash=$(useful_hash "$cwd")
 CACHE_FILE="$(useful_cache_dir)/git-${cwd_hash}"
 cache_check "$CACHE_FILE" 3 && return 0
 

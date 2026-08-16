@@ -434,3 +434,117 @@ EOF
     [ "$status" -eq 0 ]
     [ "$output" = "" ]
 }
+
+# ------------------------------------------------- cache dir creation + trust
+
+@test "@useful-cache-dir is created, not merely echoed" {
+    # It used to be echoed straight back: the mkdir only ran on the derived
+    # path. A user pointing the option at a directory that did not exist yet
+    # lost EVERY segment's cache silently, because tee's error goes to a stderr
+    # tmux discards.
+    target="$TMUX_USEFUL_CACHE_DIR/made/up/deep"
+    export MOCK_OPT_useful_cache_dir="$target"
+    useful_config_reset
+    run useful_cache_dir
+    [ "$output" = "$target" ]
+    [ -d "$target" ]
+}
+
+@test "TMUX_USEFUL_CACHE_DIR is created too" {
+    target="$TMUX_USEFUL_CACHE_DIR/env/override"
+    TMUX_USEFUL_CACHE_DIR="$target" useful_config_reset
+    run env TMUX_USEFUL_CACHE_DIR="$target" bash -c \
+        "source '$SCRIPTS_DIR/helpers.sh'; useful_cache_dir"
+    [ "$output" = "$target" ]
+    [ -d "$target" ]
+}
+
+@test "a cache dir we do not own is refused, not trusted" {
+    # mkdir succeeds on an existing directory whoever owns it, so creating it
+    # is not proof it is ours. A directory another user can write is a
+    # directory that can write the status line.
+    export MOCK_OPT_useful_cache_dir="/"     # exists, and is not owned by us
+    useful_config_reset
+    run useful_cache_dir
+    [ "$output" != "/" ]
+    [ -n "$output" ]
+    [ -d "$output" ]
+}
+
+@test "a cache dir we create is private to us" {
+    target="$TMUX_USEFUL_CACHE_DIR/private"
+    export MOCK_OPT_useful_cache_dir="$target"
+    useful_config_reset
+    useful_cache_dir >/dev/null
+    perms=$(ls -ld "$target" | cut -c1-10)
+    [ "$perms" = "drwx------" ]
+}
+
+# ------------------------------------------------------------------ useful_hash
+
+@test "useful_hash is stable and distinguishes its inputs" {
+    a=$(useful_hash "/home/me/project-one")
+    b=$(useful_hash "/home/me/project-two")
+    [ -n "$a" ]
+    [ "$a" != "$b" ]
+    [ "$a" = "$(useful_hash "/home/me/project-one")" ]
+}
+
+@test "useful_hash still distinguishes inputs with no shasum on PATH" {
+    # musl distros ship sha1sum, not shasum; a Debian without perl ships
+    # neither. An empty key is not a degraded key, it is a COLLIDING one --
+    # every repo shared one "git-" cache entry and showed the wrong branch.
+    stub="$TMUX_USEFUL_CACHE_DIR/nohash"
+    mkdir -p "$stub"
+    for c in shasum sha1sum cksum; do
+        printf '#!/bin/sh\nexit 127\n' >"$stub/$c"
+        chmod +x "$stub/$c"
+    done
+    a=$(PATH="$stub:$PATH" useful_hash "/home/me/project-one")
+    b=$(PATH="$stub:$PATH" useful_hash "/home/me/project-two")
+    [ -n "$a" ]
+    [ "$a" != "$b" ]
+}
+
+# -------------------------------------------------- cache entries are markup
+
+@test "a cache entry carrying markup we never write is refused" {
+    # Sanitising the bytes is not enough: the danger is the markup. A planted
+    # entry used to reach the bar verbatim, background block and all.
+    cache_file="$TMUX_USEFUL_CACHE_DIR/planted"
+    printf '%s' ' #[bg=red]#[fg=#ff0000]PWNED#[fg=default]' >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -ne 0 ]
+}
+
+@test "a cache entry carrying a format expansion is refused" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/planted2"
+    printf '%s' ' #{pane_current_path}' >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -ne 0 ]
+}
+
+@test "our own colour markup still round-trips through the cache" {
+    cache_file="$TMUX_USEFUL_CACHE_DIR/ours"
+    printf '%s' ' #[fg=#bf616a]!mem 95%#[fg=default]' >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -eq 0 ]
+    [ "$output" = ' #[fg=#bf616a]!mem 95%#[fg=default]' ]
+}
+
+@test "escaped untrusted text in a cache entry still round-trips" {
+    # useful_escape doubles '#', so "##[fg=" is legitimate cache content.
+    cache_file="$TMUX_USEFUL_CACHE_DIR/escaped"
+    printf '%s' ' #[fg=#7b8696]branch##[fg=red]#[fg=default]' >"$cache_file"
+    run cache_check "$cache_file" 60
+    [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------- ansi colours
+
+@test "a malformed hex colour renders no escape and no error" {
+    run bash -c "source '$SCRIPTS_DIR/helpers.sh'; useful_render ansi '#[fg=#gggggg]hi#[fg=default]' 2>&1"
+    [ "$status" -eq 0 ]
+    case "$output" in *"value too great for base"*) return 1 ;; esac
+    case "$output" in *hi*) ;; *) return 1 ;; esac
+}

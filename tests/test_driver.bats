@@ -255,3 +255,11 @@ teardown() {
     [[ "$output" == *"50%"* ]]
     rm -rf "$hangdir"
 }
+
+@test "a repeated segment is rendered once, not twice" {
+    export MOCK_PANE_COMMAND=vim
+    run "$PROJECT_ROOT/bin/useful-status" --render=plain --segments=pane,pane
+    [ "$status" -eq 0 ]
+    count=$(printf '%s' "$output" | grep -o 'vim' | wc -l | tr -d ' ')
+    [ "$count" -eq 1 ]
+}

@@ -112,3 +112,26 @@ run_git() {
     [ -n "$output" ]
     rm -rf "$repo"
 }
+
+@test "two repos keep separate cache entries without shasum on PATH" {
+    # An empty cache key is a COLLIDING key: every repo shared one "git-" entry,
+    # so switching panes showed the wrong branch for the whole TTL.
+    stub="$TMUX_USEFUL_CACHE_DIR/nohash"
+    mkdir -p "$stub"
+    for c in shasum sha1sum cksum; do
+        printf '#!/bin/sh\nexit 127\n' >"$stub/$c"
+        chmod +x "$stub/$c"
+    done
+    a="$(mktemp -d)"; b="$(mktemp -d)"
+    for r in "$a" "$b"; do
+        git -C "$r" init -q .
+        git -C "$r" -c user.email=t@t -c user.name=t commit -q --allow-empty -m x
+    done
+    git -C "$b" checkout -q -b other-branch
+
+    TMUX_PANE_CURRENT_PATH="$a" PATH="$stub:$PATH" "$SCRIPTS_DIR/git.sh" >/dev/null
+    run env TMUX_PANE_CURRENT_PATH="$b" PATH="$stub:$PATH" "$SCRIPTS_DIR/git.sh"
+    [[ "$output" == *"other-branch"* ]]
+    [ "$(ls "$TMUX_USEFUL_CACHE_DIR"/git-* 2>/dev/null | wc -l)" -eq 2 ]
+    rm -rf "$a" "$b"
+}

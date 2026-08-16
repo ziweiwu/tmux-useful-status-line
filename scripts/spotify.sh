@@ -105,12 +105,26 @@ track_cells=$USEFUL_WIDTH
 prev_track=""
 cycle_start="$now"
 if [ -f "$STATE_FILE" ]; then
-    IFS='|' read -r prev_track cycle_start <"$STATE_FILE"
+    # TIMESTAMP FIRST, track second — the order is the whole point.
+    #
+    # `read -r a b` gives the LAST variable the entire remainder of the line,
+    # delimiters included. With the track written first, a title containing a
+    # "|" — "Glory Box | Live at Roseland", and pipes in titles are common —
+    # split as prev_track="Glory Box " and cycle_start=" Live at Roseland|1000".
+    # prev_track then never equalled track, so the change branch below fired on
+    # EVERY status refresh: the slide was pinned to frame 0 for the life of the
+    # track, and the watchdog was killed and respawned once per tick instead of
+    # once per track. A timestamp cannot contain a "|", so putting it first
+    # makes the split exact whatever the title contains.
+    IFS='|' read -r cycle_start prev_track <"$STATE_FILE"
+    case "$cycle_start" in
+        ''|*[!0-9]*) cycle_start="$now"; prev_track="" ;;
+    esac
 fi
 
 if [ "$track" != "$prev_track" ]; then
     cycle_start="$now"
-    printf "%s|%s" "$track" "$cycle_start" >"$STATE_FILE"
+    printf "%s|%s" "$cycle_start" "$track" >"$STATE_FILE"
 
     # Only spawn the watchdog when the title actually overflows AND scrolling
     # is enabled. Otherwise the slide is meaningless and motion is wasted.
@@ -119,15 +133,31 @@ if [ "$track" != "$prev_track" ]; then
        && [ "$track_cells" -gt "$MAX_LEN" ]; then
         # Kill any leftover watchdog from a previous (now-stale) cycle so we
         # don't accumulate refreshers when tracks change rapidly.
+        #
+        # The guard here is the PID FILE'S AGE, not the process name. A
+        # watchdog lives at most `window_end - now` seconds and the file is
+        # stamped when it is spawned, so past that the PID is certainly not
+        # ours any more and the OS is free to have reused it. The old check —
+        # `case $comm in *bash*|*sh*|*sleep*)` — was very nearly vacuous: it
+        # matches zsh, fish, dash, ssh and sshd, so once a stale PID was
+        # recycled we would SIGTERM a completely unrelated process, up to and
+        # including the user's own login shell. Nothing ever removed the file,
+        # so that window stayed open indefinitely.
+        watchdog_life=$(( DWELL + SLIDE_DURATION + DWELL + 3 ))
         if [ -f "$WATCHDOG_PID_FILE" ]; then
             old_pid=$(cat "$WATCHDOG_PID_FILE" 2>/dev/null)
-            if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-                # Be cautious: only kill if comm looks like our shell watchdog.
-                comm=$(ps -p "$old_pid" -o comm= 2>/dev/null)
-                case "$comm" in
-                    *bash*|*sh*|*sleep*) kill "$old_pid" 2>/dev/null ;;
-                esac
+            pid_mtime=$(file_mtime "$WATCHDOG_PID_FILE")
+            case "$pid_mtime" in ''|*[!0-9]*) pid_mtime=0 ;; esac
+            pid_age=$(( now - pid_mtime ))
+            case "$old_pid" in ''|*[!0-9]*) old_pid="" ;; esac
+            if [ -n "$old_pid" ] \
+               && [ "$pid_age" -ge 0 ] && [ "$pid_age" -lt "$watchdog_life" ] \
+               && kill -0 "$old_pid" 2>/dev/null; then
+                kill "$old_pid" 2>/dev/null
             fi
+            # Whether or not it was still alive, the record is spent. Removing
+            # it is what stops a recycled PID being read back later.
+            rm -f "$WATCHDOG_PID_FILE" 2>/dev/null
         fi
 
         (

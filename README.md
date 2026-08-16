@@ -411,10 +411,12 @@ set -g @useful-timeout-total 10   # budget for the refresh as a whole
 `@useful-timeout-total` **shrinks** the total, it does not cap it. Once the
 budget is spent every remaining source still gets a one-second floor, so the
 worst case is `@useful-timeout-total` plus about a second per guarded call still
-pending. At most eleven are guarded per refresh: `system` four (two `sysctl`,
+pending. At most twelve are guarded per refresh: `system` four (two `sysctl`,
 `memory_pressure`, `df`), `git` four (three git calls, plus a fourth to resolve
-a detached HEAD), `spotify` two, `battery` one. `weather` guards none — `curl`
-carries its own `--max-time`.
+a detached HEAD), `spotify` two, `battery` one, `weather` one. `curl` carries
+its own `--max-time` as well, but that is curl's knob: it neither honours
+`@useful-timeout` nor counts against the whole-run budget, so the guard goes on
+top of it rather than instead of it.
 
 The floor is the point. Cancelling those calls outright would be tidier and was
 wrong: the driver runs segments in a fixed order, so a wedged `git` blanked a
@@ -424,9 +426,9 @@ in milliseconds, so the floor costs nothing when things are fine.
 
 Set `@useful-timeout` to `0` to disable both bounds entirely.
 
-Two bounds, because one is not enough: eleven external calls are guarded across
+Two bounds, because one is not enough: twelve external calls are guarded across
 a refresh, so a host where everything is wedged at once — the stale-NFS case
-this exists for — could block `11 x @useful-timeout` even though every
+this exists for — could block `12 x @useful-timeout` even though every
 individual call honoured its limit. `@useful-timeout-total` bounds that.
 
 `df` on a stale NFS mount, `git status` on a network filesystem and `osascript`

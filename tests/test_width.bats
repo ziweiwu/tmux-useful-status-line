@@ -466,3 +466,54 @@ width_is() {
     [ "$USEFUL_WINDOW_SCAN_LIMITED" -eq 0 ]
     [ "$USEFUL_WINDOW_CUT_TAIL" -eq 1 ]
 }
+
+# --------------------------------------------- wide glyphs below U+1F300
+
+@test "wide emoji below the astral block count two cells" {
+    # These are Emoji_Presentation=Yes / East_Asian_Width=Wide, drawn in two
+    # cells with no U+FE0F to ask for it. The variation-selector promotion was
+    # doing all the work here, so a BARE one measured a single cell.
+    for ch in ⌚ ⚡ ⭐ ⛅ ⛈ ☔ ⏰ ✨ ❌ ⛔; do
+        useful_display_width "$ch"
+        [ "$USEFUL_WIDTH" -eq 2 ] || { echo "$ch measured $USEFUL_WIDTH, want 2" >&2; return 1; }
+    done
+}
+
+@test "wide enclosed-CJK astral glyphs below U+1F300 count two cells" {
+    for ch in 🀄 🃏 🆎 🆚 🈁 🈚 🈲 🉐; do
+        useful_display_width "$ch"
+        [ "$USEFUL_WIDTH" -eq 2 ] || { echo "$ch measured $USEFUL_WIDTH, want 2" >&2; return 1; }
+    done
+}
+
+@test "narrow neighbours of those ranges are still one cell" {
+    # The ranges are hand-written, so the risk is over-reach as much as gaps.
+    for ch in ☺ ☹ ✁ ✎ ➔ ⟶ ⌘ ⌥; do
+        useful_display_width "$ch"
+        [ "$USEFUL_WIDTH" -eq 1 ] || { echo "$ch measured $USEFUL_WIDTH, want 1" >&2; return 1; }
+    done
+}
+
+@test "the Yijing hexagram gap between kana and CJK is wide" {
+    # U+4DC0-4DFF sat between the 'kana .. CJK ext A' range and the CJK
+    # unified range, and fell through to one cell.
+    useful_display_width "䷀"
+    [ "$USEFUL_WIDTH" -eq 2 ]
+}
+
+@test "a weather line of bare wide emoji cannot overflow its budget" {
+    # wttr.in's %c -- this project's DEFAULT @useful-weather-format -- emits
+    # exactly these. An 8-cell budget used to render 13 columns.
+    useful_truncate "⛅ ⛅ ⛅ ⛅ +20°C" 8
+    useful_display_width "$USEFUL_TRUNC"
+    [ "$USEFUL_WIDTH" -le 8 ]
+}
+
+@test "zero-width marks outside U+0300-036F are clamped too" {
+    # These measured one cell each, which is safe for overflow but exempted
+    # them from the mark clamp.
+    base=$(printf 'a')
+    marks=$(printf '⃗%.0s' $(seq 1 40))
+    useful_truncate "${base}${marks}b" 10
+    [ "${#USEFUL_TRUNC}" -lt 40 ]
+}
