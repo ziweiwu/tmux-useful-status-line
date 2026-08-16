@@ -342,12 +342,20 @@ run_system() {
     run_system
     [ "$output" = "" ]
 
+    # Clear between bands, as every sibling test does. system.sh caches for 5s,
+    # so without this the healthy (empty) result from above is replayed into
+    # both assertions below -- and under bash 3.2, where a failed non-final
+    # assertion does not abort the test function, the only one that counted was
+    # the trailing != *"!!"*, which an empty string satisfies. The test passed
+    # locally and failed on CI's bash 5 for exactly that reason.
     export MOCK_MEM_FREE=20
+    rm -f "$TMUX_USEFUL_CACHE_DIR/system"
     run_system
     [[ "$output" == *"mem 80%"* ]]
     [[ "$output" != *"~"* ]]
 
     export MOCK_MEM_FREE=2
+    rm -f "$TMUX_USEFUL_CACHE_DIR/system"
     run_system
     [[ "$output" == *"!mem 98%"* ]]
     [[ "$output" != *"!!"* ]]
