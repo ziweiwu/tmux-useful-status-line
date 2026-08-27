@@ -81,3 +81,36 @@ variables are globals that would otherwise collide.
 - **Anything a `#()` writes to stderr is discarded by tmux.** A diagnostic there is invisible to the user, so a failure must degrade to a sensible default rather than rely on being read.
 
 When something isn't covered above, the existing tests are the executable spec.
+
+## The Stop hook
+
+`.claude/gates.json` lists the checks a turn may not end without. The hook is
+in the `harness` plugin and reads `watch` pathspecs and `[name, argv]` gates
+from that file; a repo without one gets nothing.
+
+It is **not** `make check`. Measured on this machine at load average 12–50,
+`make check` is **110s** — `make lint` 6s, the 327 bats tests 101s — and a Stop
+hook that costs two minutes per turn is one that gets deleted. The hook runs
+`make lint` plus every bats file except the slow ones: **80 of 327 tests in
+about 18s**.
+
+The `test` gate names the exclusions rather than the inclusions:
+
+```sh
+bats $(ls tests/*.bats | grep -vE 'test_(helpers_lib|spotify|git|width|system|weather|battery|driver)\.bats$')
+```
+
+That direction is the point. An inclusion list silently stops covering every
+file added after it was written — the first draft of this gate listed five files
+by name and had already missed `test_linux.bats`, which nobody would have
+noticed. Excluding by name means a new test file is gated by default, and
+leaving it ungated takes a deliberate edit here.
+
+Dropped, with their measured cost: `helpers_lib` 28–34s (61 tests, several of
+them real `sleep`-based timeout guards), `spotify` 17s, `git` 15s, `width` 12s,
+`system` 11s, `weather` 11s, `battery` 9s, `driver` 9s. `bats -j` would recover
+most of that, but bats shells out to GNU `parallel`, which is not installed
+here.
+
+**`make check` is still step 7 before a commit**, and CI runs it in full on
+bash 5. The hook is a fast net under the turn, not a replacement for it.

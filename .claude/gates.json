@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "scripts/",
+    "bin/",
+    "tools/",
+    "tests/",
+    "Makefile",
+    "useful-status-line.tmux"
+  ],
+  "gates": [
+    ["lint", ["make", "lint"]],
+    ["test", ["sh", "-c", "bats $(ls tests/*.bats | grep -vE 'test_(helpers_lib|spotify|git|width|system|weather|battery|driver)\\.bats$')"]]
+  ],
+  "timeout": 600
+}
